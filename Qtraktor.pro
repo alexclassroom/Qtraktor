@@ -22,15 +22,57 @@ DEFINES += QT_DEPRECATED_WARNINGS
 # You can also select to disable deprecated APIs only up to a certain version of Qt.
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
+QMAKE_CFLAGS += -w
+
 CONFIG += c++11 sdk_no_version_check
+
+# zlib library (for decompression)
+# bzip2 is bundled in vendor/bzip2-1.0.8 and built as part of the project
+
+win32-g++ {
+    LIBS += -lz
+}
+
+# OpenSSL support for MinGW
+win32-g++ {
+    INCLUDEPATH += C:/msys64/mingw64/include
+    LIBS += -LC:/msys64/mingw64/lib -lssl -lcrypto
+    DEFINES += HAVE_OPENSSL
+}
+
+win32-msvc {
+    LIBS += zlib.lib
+}
+unix:!android {
+    LIBS += -lz
+}
+macx {
+    LIBS += -lz
+}
+
+# bzip2 source package
+BZIP2_DIR = $$PWD/vendor/bzip2-1.0.8
+INCLUDEPATH += $$BZIP2_DIR
 
 SOURCES += \
         main.cpp \
-        mainwindow.cpp
+        mainwindow.cpp \
+        backupfile.cpp \
+        cryptoutils.cpp \
+        passworddialog.cpp \
+        $$BZIP2_DIR/blocksort.c \
+        $$BZIP2_DIR/huffman.c \
+        $$BZIP2_DIR/crctable.c \
+        $$BZIP2_DIR/randtable.c \
+        $$BZIP2_DIR/compress.c \
+        $$BZIP2_DIR/decompress.c \
+        $$BZIP2_DIR/bzlib.c
 
 HEADERS += \
         mainwindow.h \
-    backupfile.h
+        backupfile.h \
+        cryptoutils.h \
+        passworddialog.h
 
 FORMS += \
         mainwindow.ui
