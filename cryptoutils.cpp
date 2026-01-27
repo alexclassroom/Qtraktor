@@ -6,7 +6,6 @@
 #include <bzlib.h>
 #include <cstring>
 
-// OpenSSL is required
 #include <openssl/evp.h>
 #include <openssl/aes.h>
 #include <openssl/sha.h>
@@ -39,24 +38,14 @@ bool CryptoUtils::isConfigFile(const QString& fileName)
 
 bool CryptoUtils::detectCompression(const QByteArray& fileContent)
 {
-    return detectCompressionType(fileContent) != COMPRESSION_NONE;
+    Q_UNUSED(fileContent);
+    return false;
 }
 
 CompressionType CryptoUtils::detectCompressionType(const QByteArray& fileContent)
 {
-    if (fileContent.size() < CHUNK_SIZE_PREFIX_LENGTH) {
-        return COMPRESSION_NONE;
-    }
-
-    const quint32 chunkSize = readBigEndianUInt32(fileContent, 0);
-
-    if (chunkSize == 0 ||
-        chunkSize > static_cast<quint32>(fileContent.size() - CHUNK_SIZE_PREFIX_LENGTH)) {
-        return COMPRESSION_NONE;
-    }
-
-    const QByteArray firstChunk = fileContent.mid(CHUNK_SIZE_PREFIX_LENGTH, chunkSize);
-    return inferCompressionTypeFromHeader(firstChunk);
+    Q_UNUSED(fileContent);
+    return COMPRESSION_NONE;
 }
 
 static QByteArray inflateWithMode(const QByteArray& compressedData, int windowBits, QString* errorMsg)
@@ -248,9 +237,7 @@ QByteArray CryptoUtils::processFileContent(
         QString decompErr;
         QByteArray decompressed = decompressChunk(compressedChunk, chunkType, &decompErr);
 
-    
         if (decompressed.isEmpty() && compressedChunk.size() > 10) {
-            // For zlib, try gzip format as fallback (windowBits = 31)
             if (chunkType == COMPRESSION_ZLIB) {
                 QString gzipErr;
                 QByteArray gzipDecompressed = decompressZlibChunk(compressedChunk, &gzipErr);
@@ -335,18 +322,14 @@ QByteArray CryptoUtils::decryptString(const QByteArray& encryptedData, const QSt
     int outlen = 0;
     int finalLen = 0;
 
-    if (EVP_DecryptUpdate(ctx,
-                          reinterpret_cast<unsigned char*>(plaintext.data()), &outlen,
-                          reinterpret_cast<const unsigned char*>(ciphertext.data()),
-                          ciphertext.size()) != 1) {
+    if (EVP_DecryptUpdate(ctx, reinterpret_cast<unsigned char*>(plaintext.data()), &outlen,
+                          reinterpret_cast<const unsigned char*>(ciphertext.data()), ciphertext.size()) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         if (errorMsg) *errorMsg = "Decryption update failed";
         return {};
     }
 
-    if (EVP_DecryptFinal_ex(ctx,
-                            reinterpret_cast<unsigned char*>(plaintext.data()) + outlen,
-                            &finalLen) != 1) {
+    if (EVP_DecryptFinal_ex(ctx, reinterpret_cast<unsigned char*>(plaintext.data()) + outlen, &finalLen) != 1) {
         EVP_CIPHER_CTX_free(ctx);
         if (errorMsg) *errorMsg = "Decryption finalization failed (wrong password?)";
         return {};
