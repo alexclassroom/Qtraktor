@@ -1,126 +1,109 @@
 #include "backupfile.h"
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonValue>
+#include <QJsonParseError>
+
+namespace {
+  struct FileStateGuard {
+    BackupFile* f = nullptr;
+    qint64 savedPos = 0;
+    bool shouldClose = false;
+
+    FileStateGuard(BackupFile* file, qint64 pos, bool closeOnExit) : f(file), savedPos(pos), shouldClose(closeOnExit) {}
+
+    ~FileStateGuard() {
+      if (!f) return;
+      f->seek(savedPos);
+      if (shouldClose) f->close();
+    }
+  };
+
+  static bool isConfigFileNameMatch(const QString& fileName)
+  {
+    const QString baseFileName = fileName.section('/', -1);
+    const QString normalized = fileName.trimmed();
+
+    return (baseFileName == "package.json" || baseFileName == "multisite.json" ||
+            normalized == "package.json" || normalized == "multisite.json" ||
+            normalized.endsWith("/package.json") || normalized.endsWith("/multisite.json"));
+  }
+
+  static bool jsonBoolish(const QJsonValue& v, bool defaultValue = false)
+  {
+    if (v.isBool()) return v.toBool();
+    if (v.isString()) {
+      const QString s = v.toString().toLower();
+      return (s == "true" || s == "1");
+    }
+    return defaultValue;
+  }
+}
 
 void BackupFile::loadConfig()
 {
   isEncrypted = false;
   compressionType = COMPRESSION_NONE;
 
-  // Check if file is already open, if not, open it
-  bool wasOpen = isOpen();
+  const bool wasOpen = isOpen();
   if (!wasOpen) {
     if (!open(QIODevice::ReadOnly)) {
       return;
     }
   }
 
-  // Read first file header to find package.json or multisite.json
-  qint64 savedPos = pos();
+  const qint64 savedPos = pos();
+  FileStateGuard guard(this, savedPos, !wasOpen);
+
   if (!seek(0)) {
-    if (!wasOpen) {
-      close();
-    }
     return;
   }
 
   while (!atEnd()) {
-    QByteArray header = read(4377);
-    if (header.size() != 4377) {
+    HeaderInfo info;
+    if (!readHeader(info)) {
       break;
     }
 
-    if (header == eof) {
+    if (info.isEof) {
       break;
     }
 
-    // Extract filename
-    QByteArray fileNameBytes = header.mid(0, 255);
-    int nullPos = fileNameBytes.indexOf('\0');
-    if (nullPos >= 0) {
-      fileNameBytes = fileNameBytes.left(nullPos);
-    }
-    QString fileName = QString::fromUtf8(fileNameBytes.trimmed());
+    if (isConfigFileNameMatch(info.fileName)) {
+      QByteArray jsonContent;
+      if (!readExact(info.fileSize, jsonContent)) {
+        break;
+      }
 
-    // Extract file size
-    QByteArray sizeBytes = header.mid(255, 14);
-    int nullPos2 = sizeBytes.indexOf('\0');
-    if (nullPos2 >= 0) {
-      sizeBytes = sizeBytes.left(nullPos2);
-    }
-    bool ok;
-    qint64 fileSize = sizeBytes.trimmed().toLongLong(&ok);
-    if (!ok || fileSize < 0) {
-      break;
-    }
+      QJsonParseError err;
+      const QJsonDocument doc = QJsonDocument::fromJson(jsonContent, &err);
+      if (err.error == QJsonParseError::NoError && doc.isObject()) {
+        const QJsonObject obj = doc.object();
 
-    // Check if this is package.json or multisite.json
-    // Handle both with and without path prefix
-    QString baseFileName = fileName.section('/', -1); // Get just the filename part
-    QString normalizedFileName = fileName.trimmed();
-    
-    // Check exact match or base filename match
-    if (baseFileName == "package.json" || baseFileName == "multisite.json" ||
-        normalizedFileName == "package.json" || normalizedFileName == "multisite.json" ||
-        normalizedFileName.endsWith("/package.json") || normalizedFileName.endsWith("/multisite.json")) {
-      // Read the JSON content (these files are never compressed or encrypted)
-      QByteArray jsonContent = read(fileSize);
-      if (jsonContent.size() == fileSize) {
-        QJsonParseError error;
-        QJsonDocument doc = QJsonDocument::fromJson(jsonContent, &error);
-        if (error.error == QJsonParseError::NoError && doc.isObject()) {
-          QJsonObject obj = doc.object();
+        if (obj.contains("Encrypted")) {
+          isEncrypted = jsonBoolish(obj.value("Encrypted"), false);
+        }
 
-          // Check encryption - handle both bool and string "true"/"false"
-          if (obj.contains("Encrypted")) {
-            if (obj["Encrypted"].isBool()) {
-              isEncrypted = obj["Encrypted"].toBool();
-            } else if (obj["Encrypted"].isString()) {
-              QString encStr = obj["Encrypted"].toString().toLower();
-              isEncrypted = (encStr == "true" || encStr == "1");
-            }
-          }
+        if (obj.contains("Compression") && obj.value("Compression").isObject()) {
+          const QJsonObject compression = obj.value("Compression").toObject();
+          const bool enabled = compression.contains("Enabled") ? jsonBoolish(compression.value("Enabled"), false) : false;
 
-          // Check compression
-          if (obj.contains("Compression") && obj["Compression"].isObject()) {
-            QJsonObject compression = obj["Compression"].toObject();
-            if (compression.contains("Enabled")) {
-              bool enabled = false;
-              if (compression["Enabled"].isBool()) {
-                enabled = compression["Enabled"].toBool();
-              } else if (compression["Enabled"].isString()) {
-                QString enabledStr = compression["Enabled"].toString().toLower();
-                enabled = (enabledStr == "true" || enabledStr == "1");
-              }
-              
-              if (enabled && compression.contains("Type")) {
-                QString type = compression["Type"].toString().toLower();
-                // JavaScript uses "gzip" but it's actually zlib format
-                if (type == "zlib" || type == "gzip") {
-                  compressionType = COMPRESSION_ZLIB;
-                } else if (type == "bzip2") {
-                  compressionType = COMPRESSION_BZIP2;
-                }
-              }
+          if (enabled && compression.contains("Type")) {
+            const QString type = compression.value("Type").toString().toLower();
+
+            if (type == "zlib" || type == "gzip") {
+              compressionType = COMPRESSION_ZLIB;
+            } else if (type == "bzip2") {
+              compressionType = COMPRESSION_BZIP2;
             }
           }
         }
       }
-      break; // Found config file, no need to continue
-    } else {
-      // Skip this file
-      if (!seek(pos() + fileSize)) {
-        break;
-      }
-    }
-  }
 
-  // Restore position
-  seek(savedPos);
-  
-  // Only close if we opened it
-  if (!wasOpen) {
-    close();
+      break;
+    }
+
+    if (!seek(pos() + info.fileSize)) {
+      break;
+    }
   }
 }
