@@ -37,18 +37,6 @@ bool CryptoUtils::isConfigFile(const QString& fileName)
     return CONFIG_FILES.contains(fileName.section('/', -1));
 }
 
-bool CryptoUtils::detectCompression(const QByteArray& fileContent)
-{
-    Q_UNUSED(fileContent);
-    return false;
-}
-
-CompressionType CryptoUtils::detectCompressionType(const QByteArray& fileContent)
-{
-    Q_UNUSED(fileContent);
-    return COMPRESSION_NONE;
-}
-
 static QByteArray inflateWithMode(const QByteArray& compressedData, int windowBits, QString* errorMsg)
 {
     if (errorMsg) errorMsg->clear();
@@ -204,12 +192,7 @@ QByteArray CryptoUtils::processFileContent(
         return fileContent;
     }
 
-    CompressionType effectiveType = compressionType;
-    if (effectiveType == COMPRESSION_NONE) {
-        effectiveType = detectCompressionType(fileContent);
-    }
-
-    if (effectiveType == COMPRESSION_NONE) {
+    if (compressionType == COMPRESSION_NONE) {
         return fileContent;
     }
 
@@ -233,10 +216,8 @@ QByteArray CryptoUtils::processFileContent(
         const QByteArray compressedChunk = fileContent.mid(pos, chunkSize);
         pos += chunkSize;
 
-        CompressionType chunkType = effectiveType;
-
         QString decompErr;
-        QByteArray decompressed = decompressChunk(compressedChunk, chunkType, &decompErr);
+        QByteArray decompressed = decompressChunk(compressedChunk, compressionType, &decompErr);
 
         if (!decompErr.isEmpty()) {
             if (errorMsg) *errorMsg = decompErr;
@@ -365,12 +346,7 @@ QByteArray CryptoUtils::processFileContentWithPassword(
         return fileContent;
     }
 
-    CompressionType effectiveType = compressionType;
-    if (effectiveType == COMPRESSION_NONE) {
-        effectiveType = detectCompressionType(fileContent);
-    }
-
-    if (effectiveType == COMPRESSION_NONE) {
+    if (compressionType == COMPRESSION_NONE) {
         return fileContent;
     }
 
@@ -396,16 +372,6 @@ QByteArray CryptoUtils::processFileContentWithPassword(
 
         QByteArray decryptedChunk = encryptedChunk;
         if (!password.isEmpty()) {
-            
-            const int ivLength = 16;
-            if (encryptedChunk.size() < ivLength) {
-                if (errorMsg) {
-                    *errorMsg = QString("Chunk too small to contain IV: %1 < %2")
-                        .arg(encryptedChunk.size()).arg(ivLength);
-                }
-                return {};
-            }
-            
             QString decryptErr;
             decryptedChunk = decryptString(encryptedChunk, password, &decryptErr);
 
@@ -417,20 +383,12 @@ QByteArray CryptoUtils::processFileContentWithPassword(
             }
         }
 
-        CompressionType chunkType = effectiveType;
-
         QString decompErr;
-        QByteArray decompressed;
-        
-        if (chunkType != COMPRESSION_NONE) {
-            decompressed = decompressChunk(decryptedChunk, chunkType, &decompErr);
+        QByteArray decompressed = decompressChunk(decryptedChunk, compressionType, &decompErr);
 
-            if (!decompErr.isEmpty()) {
-                if (errorMsg) *errorMsg = decompErr;
-                return {};
-            }
-        } else {
-            decompressed = decryptedChunk;
+        if (!decompErr.isEmpty()) {
+            if (errorMsg) *errorMsg = decompErr;
+            return {};
         }
 
         result.append(decompressed);

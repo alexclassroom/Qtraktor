@@ -16,10 +16,6 @@ class CryptoUtils {
 public:
     static bool isConfigFile(const QString &fileName);
 
-    static bool detectCompression(const QByteArray &fileContent);
-
-    static CompressionType detectCompressionType(const QByteArray &fileContent);
-
     static QByteArray decompressZlibChunk(const QByteArray &compressedData, QString *errorMsg = nullptr);
 
     static QByteArray decompressBzip2Chunk(const QByteArray &compressedData, QString *errorMsg = nullptr);
