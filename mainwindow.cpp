@@ -96,6 +96,7 @@ void MainWindow::extractTo()
         if (dialog.exec() == QDialog::Accepted) {
           filePassword = dialog.getPassword();
         } else {
+          extractTo.removeRecursively();
           return;
         }
       }
@@ -141,6 +142,12 @@ void MainWindow::extractTo()
   backupFile.close();
 
   if (!extractionSuccess) {
+    ui->progressBar->setVisible(false);
+    ui->backupNameLabel->setVisible(true);
+
+    filePassword.clear();
+    extractTo.removeRecursively();
+
     QString errorMessage = tr(
       "The backup file extraction failed. The file may be corrupted or the password may be incorrect.");
     if (!lastError.isEmpty()) {
