@@ -33,21 +33,26 @@ win32-g++ {
     LIBS += -lz
 }
 
-# OpenSSL support for MinGW
-win32-g++ {
-    INCLUDEPATH += C:/msys64/mingw64/include
-    LIBS += -LC:/msys64/mingw64/lib -lssl -lcrypto
-    DEFINES += HAVE_OPENSSL
-}
-
 win32-msvc {
     LIBS += zlib.lib
+    # OpenSSL for MSVC (no pkg-config): uses OPENSSL_DIR environment variable
+    OPENSSL_DIR = $$(OPENSSL_DIR)
+    !isEmpty(OPENSSL_DIR) {
+        INCLUDEPATH += $$OPENSSL_DIR/include
+        LIBS += -L$$OPENSSL_DIR/lib -llibssl -llibcrypto
+    }
 }
 unix:!android {
     LIBS += -lz
 }
 macx {
     LIBS += -lz
+}
+
+# OpenSSL via pkg-config (works on macOS, Linux, MinGW/MSYS2)
+!win32-msvc {
+    CONFIG += link_pkgconfig
+    PKGCONFIG += openssl
 }
 
 # bzip2 source package

@@ -2,6 +2,10 @@ version: 1.0.{build}
 skip_non_tags: true
 image: Visual Studio 2017
 platform: Any CPU
+environment:
+  OPENSSL_DIR: C:\Program Files\OpenSSL-Win64
+install:
+- choco install openssl -y --no-progress
 build_script:
 - ps: >-
     pushd 'C:\Program Files (x86)\Microsoft Visual Studio\2017\Community\VC\Auxiliary\Build'
@@ -23,6 +27,11 @@ build_script:
     C:\Qt\Tools\QtCreator\bin\jom.exe -f Makefile.Release
 
     C:\Qt\latest\msvc2017_64\bin\windeployqt release\Traktor.exe
+
+
+    Copy-Item "$Env:OPENSSL_DIR\bin\libssl*.dll" -Destination release\
+
+    Copy-Item "$Env:OPENSSL_DIR\bin\libcrypto*.dll" -Destination release\
 
 
     mkdir packages\com.servmask.traktor\data
