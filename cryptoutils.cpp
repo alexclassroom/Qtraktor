@@ -109,23 +109,23 @@ QByteArray CryptoUtils::decompressZlibChunk(const QByteArray& compressedData, QS
     }
 
     QByteArray out = inflateWithMode(compressedData, 15, errorMsg);
-    if (!out.isNull() && !out.isEmpty()) {
+    if (errorMsg && errorMsg->isEmpty()) {
         return out;
     }
 
-    if (compressedData.size() >= 2 && 
-        static_cast<unsigned char>(compressedData[0]) == 0x1f && 
+    if (compressedData.size() >= 2 &&
+        static_cast<unsigned char>(compressedData[0]) == 0x1f &&
         static_cast<unsigned char>(compressedData[1]) == 0x8b) {
         QString gzipErr;
         QByteArray outGzip = inflateWithMode(compressedData, 31, &gzipErr);
-        if (!outGzip.isNull() && !outGzip.isEmpty()) {
+        if (gzipErr.isEmpty()) {
             if (errorMsg) errorMsg->clear();
             return outGzip;
         }
     }
 
-    if (errorMsg) {
-        *errorMsg = QString("zlib/gzip decompression failed (tried zlib=15, gzip=31, raw=-15)");
+    if (errorMsg && errorMsg->isEmpty()) {
+        *errorMsg = QString("zlib/gzip decompression failed");
     }
     return {};
 }
@@ -237,26 +237,9 @@ QByteArray CryptoUtils::processFileContent(
         QString decompErr;
         QByteArray decompressed = decompressChunk(compressedChunk, chunkType, &decompErr);
 
-        if (decompressed.isEmpty() && compressedChunk.size() > 10) {
-            if (chunkType == COMPRESSION_ZLIB) {
-                QString gzipErr;
-                QByteArray gzipDecompressed = decompressZlibChunk(compressedChunk, &gzipErr);
-
-                if (!gzipDecompressed.isEmpty()) {
-                    decompressed = gzipDecompressed;
-                    decompErr.clear();
-                } else if (compressedChunk.size() > 50) {
-                    if (errorMsg) {
-                        *errorMsg = QString("Decompression failed: %1").arg(decompErr.isEmpty() ? gzipErr : decompErr);
-                    }
-                    return {};
-                }
-            } else if (compressedChunk.size() > 50) {
-                if (errorMsg) {
-                    *errorMsg = decompErr.isEmpty() ? "Decompression produced empty output" : decompErr;
-                }
-                return {};
-            }
+        if (!decompErr.isEmpty()) {
+            if (errorMsg) *errorMsg = decompErr;
+            return {};
         }
 
         result.append(decompressed);
@@ -358,8 +341,8 @@ QByteArray CryptoUtils::processFileContentWithPassword(
         if (!password.isEmpty()) {
             QString decryptErr;
             QByteArray decrypted = decryptString(fileContent, password, &decryptErr);
-            if (decrypted.isEmpty() && !fileContent.isEmpty()) {
-                if (errorMsg) *errorMsg = decryptErr.isEmpty() ? "Decryption failed" : decryptErr;
+            if (!decryptErr.isEmpty()) {
+                if (errorMsg) *errorMsg = decryptErr;
                 return {};
             }
             return decrypted;
@@ -376,8 +359,8 @@ QByteArray CryptoUtils::processFileContentWithPassword(
         if (!password.isEmpty()) {
             QString decryptErr;
             QByteArray decrypted = decryptString(fileContent, password, &decryptErr);
-            if (decrypted.isEmpty() && !fileContent.isEmpty()) {
-                if (errorMsg) *errorMsg = decryptErr.isEmpty() ? "Decryption failed" : decryptErr;
+            if (!decryptErr.isEmpty()) {
+                if (errorMsg) *errorMsg = decryptErr;
                 return {};
             }
             return decrypted;
@@ -419,17 +402,12 @@ QByteArray CryptoUtils::processFileContentWithPassword(
             
             QString decryptErr;
             decryptedChunk = decryptString(encryptedChunk, password, &decryptErr);
-        
-            if (decryptedChunk.isEmpty()) {
-                if (encryptedChunk.size() > ivLength) {
 
-                    if (errorMsg) {
-                        *errorMsg = decryptErr.isEmpty() 
-                            ? "Chunk decryption failed (wrong password?)" 
-                            : QString("Chunk decryption failed: %1").arg(decryptErr);
-                    }
-                    return {};
+            if (!decryptErr.isEmpty()) {
+                if (errorMsg) {
+                    *errorMsg = QString("Chunk decryption failed: %1").arg(decryptErr);
                 }
+                return {};
             }
         }
 
@@ -439,61 +417,11 @@ QByteArray CryptoUtils::processFileContentWithPassword(
         QByteArray decompressed;
         
         if (chunkType != COMPRESSION_NONE) {
-            if (decryptedChunk.isEmpty()) {
-                if (errorMsg) *errorMsg = "Cannot decompress empty chunk";
-                return {};
-            }
-            
-            if (chunkType == COMPRESSION_ZLIB && decryptedChunk.size() < 2) {
-                if (errorMsg) {
-                    *errorMsg = QString("Chunk too small for zlib/gzip decompression: %1 bytes")
-                        .arg(decryptedChunk.size());
-                }
-                return {};
-            }
-            
-            if (chunkType == COMPRESSION_BZIP2 && decryptedChunk.size() < 10) {
-                if (errorMsg) {
-                    *errorMsg = QString("Chunk too small for bzip2 decompression: %1 bytes")
-                        .arg(decryptedChunk.size());
-                }
-                return {};
-            }
-            
             decompressed = decompressChunk(decryptedChunk, chunkType, &decompErr);
-            
-            if (decompressed.isEmpty() && chunkType == COMPRESSION_ZLIB) {
-                QString gzipErr;
-                QByteArray gzipDecompressed = decompressZlibChunk(decryptedChunk, &gzipErr);
-                if (!gzipDecompressed.isEmpty()) {
-                    decompressed = gzipDecompressed;
-                    decompErr.clear();
-                } else {
-                    if (decryptedChunk.size() < 10) {
-                        decompressed = decryptedChunk;
-                        decompErr.clear();
-                    } else {
-                        if (errorMsg) {
-                            *errorMsg = QString("Decompression failed: %1 (chunk size: %2 bytes, compression type: %3)")
-                                .arg(decompErr.isEmpty() ? gzipErr : decompErr)
-                                .arg(decryptedChunk.size())
-                                .arg("zlib/gzip");
-                        }
-                        return {};
-                    }
-                }
-            } else if (decompressed.isEmpty()) {
-                if (chunkType == COMPRESSION_BZIP2 && decryptedChunk.size() < 14) {
-                    decompressed = decryptedChunk;
-                    decompErr.clear();
-                } else {
-                    if (errorMsg) {
-                        *errorMsg = QString("Decompression failed: %1 (chunk size: %2 bytes, compression type: bzip2)")
-                            .arg(decompErr)
-                            .arg(decryptedChunk.size());
-                    }
-                    return {};
-                }
+
+            if (!decompErr.isEmpty()) {
+                if (errorMsg) *errorMsg = decompErr;
+                return {};
             }
         } else {
             decompressed = decryptedChunk;

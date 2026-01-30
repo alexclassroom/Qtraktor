@@ -108,19 +108,6 @@ public:
         return false;
       }
 
-      if (processedContent.isEmpty() && fileContent.size() > 100) {
-        if (isCompressed || (isEncrypted && !filePassword.isEmpty())) {
-
-          const QString errorMsg = QString("Empty processed content for file '%1' (compressed: %2, encrypted: %3)")
-            .arg(info.fileName).arg(isCompressed).arg(isEncrypted);
-
-          qWarning() << errorMsg;
-          emit error(errorMsg);
-          out.close();
-          return false;
-        }
-      }
-
       if (out.write(processedContent) != processedContent.size()) {
         out.close();
         return false;
