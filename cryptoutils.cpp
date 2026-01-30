@@ -20,6 +20,7 @@ const QStringList CryptoUtils::CONFIG_FILES = {
 };
 
 const int CryptoUtils::CHUNK_SIZE_PREFIX_LENGTH = 4;
+const int CryptoUtils::ENCRYPTION_CHUNK_SIZE = 512032; // 512000 plaintext + 16 IV + 16 AES padding
 static constexpr int OUTPUT_BUFFER_SIZE = 32768;
 
 static quint32 readBigEndianUInt32(const QByteArray& data, int offset)
@@ -339,13 +340,27 @@ QByteArray CryptoUtils::processFileContentWithPassword(
 
     if (!isCompressed) {
         if (!password.isEmpty()) {
-            QString decryptErr;
-            QByteArray decrypted = decryptString(fileContent, password, &decryptErr);
-            if (!decryptErr.isEmpty()) {
-                if (errorMsg) *errorMsg = decryptErr;
-                return {};
+            // Encrypted without compression: fixed-size chunks (no 4-byte size headers).
+            // The PHP compressor encrypts 512000-byte plaintext chunks independently,
+            // each producing 512032 bytes (16 IV + 512000 + 16 PKCS7 padding).
+            QByteArray result;
+            int pos = 0;
+
+            while (pos < fileContent.size()) {
+                const int chunkSize = qMin(ENCRYPTION_CHUNK_SIZE, fileContent.size() - pos);
+                const QByteArray chunk = fileContent.mid(pos, chunkSize);
+                pos += chunkSize;
+
+                QString decryptErr;
+                QByteArray decrypted = decryptString(chunk, password, &decryptErr);
+                if (!decryptErr.isEmpty()) {
+                    if (errorMsg) *errorMsg = decryptErr;
+                    return {};
+                }
+                result.append(decrypted);
             }
-            return decrypted;
+
+            return result;
         }
         return fileContent;
     }
@@ -356,15 +371,6 @@ QByteArray CryptoUtils::processFileContentWithPassword(
     }
 
     if (effectiveType == COMPRESSION_NONE) {
-        if (!password.isEmpty()) {
-            QString decryptErr;
-            QByteArray decrypted = decryptString(fileContent, password, &decryptErr);
-            if (!decryptErr.isEmpty()) {
-                if (errorMsg) *errorMsg = decryptErr;
-                return {};
-            }
-            return decrypted;
-        }
         return fileContent;
     }
 

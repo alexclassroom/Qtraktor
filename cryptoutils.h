@@ -40,6 +40,7 @@ public:
 private:
     static const QStringList CONFIG_FILES;
     static const int CHUNK_SIZE_PREFIX_LENGTH; // 4 bytes for compressed chunk size
+    static const int ENCRYPTION_CHUNK_SIZE;    // 512000 + 16 (IV) + 16 (AES padding)
 };
 
 #endif // CRYPTOUTILS_H
