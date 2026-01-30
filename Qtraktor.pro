@@ -22,8 +22,6 @@ DEFINES += QT_DEPRECATED_WARNINGS
 # You can also select to disable deprecated APIs only up to a certain version of Qt.
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
-QMAKE_CFLAGS += -w
-
 CONFIG += c++11 sdk_no_version_check
 
 # zlib library (for decompression)
@@ -60,6 +58,10 @@ unix {
     CONFIG += link_pkgconfig
     PKGCONFIG += openssl
 }
+
+# Suppress C compiler warnings (only affects vendored bzip2 .c files;
+# all project code is C++ and uses QMAKE_CXXFLAGS instead)
+QMAKE_CFLAGS += -w
 
 # bzip2 source package
 BZIP2_DIR = $$PWD/vendor/bzip2-1.0.8
