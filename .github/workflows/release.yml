@@ -179,7 +179,7 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
-      - name: Upload assets to release
+      - name: Upload assets to GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -188,3 +188,77 @@ jobs:
             Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe \
             Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage \
             --repo "${{ github.repository }}"
+
+      - name: Upload to BunnyCDN
+        env:
+          BUNNY_STORAGE_KEY: ${{ secrets.BUNNY_STORAGE_KEY }}
+          BUNNY_STORAGE_ZONE: ${{ secrets.BUNNY_STORAGE_ZONE }}
+        run: |
+          STORAGE_URL="https://storage.bunnycdn.com/$BUNNY_STORAGE_ZONE"
+          FAILED=0
+
+          upload() {
+            local remote_name="$1"
+            local local_file="$2"
+            echo "Uploading $remote_name..."
+
+            response=$(curl -sS --request PUT --url "$STORAGE_URL/$remote_name" \
+              --header "AccessKey: $BUNNY_STORAGE_KEY" \
+              --upload-file "$local_file" \
+              -w "\n%{http_code}")
+
+            http_code=$(echo "$response" | tail -n1)
+
+            if [ "$http_code" -eq 201 ] || [ "$http_code" -eq 200 ]; then
+              echo "Uploaded $remote_name"
+            else
+              body=$(echo "$response" | head -n-1)
+              echo "::error::Failed to upload $remote_name (HTTP $http_code): $body"
+              FAILED=1
+            fi
+          }
+
+          # Upload versioned files
+          upload "Traktor-${{ env.VERSION }}.dmg" \
+            "Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg"
+
+          upload "Traktor-${{ env.VERSION }}.exe" \
+            "Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe"
+
+          upload "Traktor-x86_64-${{ env.VERSION }}.AppImage" \
+            "Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage"
+
+          # Upload latest files (stable download links)
+          upload "Traktor-latest.dmg" \
+            "Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg"
+
+          upload "Traktor-latest.exe" \
+            "Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe"
+
+          upload "Traktor-x86_64-latest.AppImage" \
+            "Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage"
+
+          # Track failure but continue
+          echo "BUNNY_UPLOAD_FAILED=$FAILED" >> $GITHUB_ENV
+
+      - name: Purge BunnyCDN cache
+        run: |
+          echo "Purging BunnyCDN cache for PullZone ID: ${{ secrets.BUNNY_PULL_ZONE_ID }}"
+
+          response=$(curl -sS --request POST \
+            --url "https://api.bunny.net/pullzone/${{ secrets.BUNNY_PULL_ZONE_ID }}/purgeCache" \
+            --header "AccessKey: ${{ secrets.BUNNY_API_KEY }}" \
+            -w "\n%{http_code}")
+
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | head -n-1)
+
+          if [ "$http_code" -eq 204 ] || [ "$http_code" -eq 200 ]; then
+            echo "Cache purge successful"
+          else
+            echo "::error::Cache purge failed (HTTP $http_code): $body"
+          fi
+
+      - name: Check upload results
+        if: env.BUNNY_UPLOAD_FAILED == '1'
+        run: echo "::warning::One or more BunnyCDN uploads failed"
