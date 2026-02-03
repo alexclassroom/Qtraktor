@@ -24,13 +24,68 @@ DEFINES += QT_DEPRECATED_WARNINGS
 
 CONFIG += c++11 sdk_no_version_check
 
+# zlib library (for decompression)
+# bzip2 is bundled in vendor/bzip2-1.0.8 and built as part of the project
+
+win32-g++ {
+    LIBS += -lz
+    # OpenSSL for MinGW: uses OPENSSL_DIR environment variable
+    OPENSSL_DIR = $$(OPENSSL_DIR)
+    !isEmpty(OPENSSL_DIR) {
+        INCLUDEPATH += $$OPENSSL_DIR/include
+        LIBS += -L$$OPENSSL_DIR/lib -lssl -lcrypto
+    }
+}
+
+win32-msvc {
+    LIBS += zlib.lib
+    # OpenSSL for MSVC: uses OPENSSL_DIR environment variable
+    OPENSSL_DIR = $$(OPENSSL_DIR)
+    !isEmpty(OPENSSL_DIR) {
+        INCLUDEPATH += $$OPENSSL_DIR/include
+        LIBS += -L$$OPENSSL_DIR/lib -llibssl -llibcrypto
+    }
+}
+unix:!android {
+    LIBS += -lz
+}
+macx {
+    LIBS += -lz
+}
+
+# OpenSSL via pkg-config (macOS, Linux)
+unix {
+    CONFIG += link_pkgconfig
+    PKGCONFIG += openssl
+}
+
+# Suppress C compiler warnings (only affects vendored bzip2 .c files;
+# all project code is C++ and uses QMAKE_CXXFLAGS instead)
+QMAKE_CFLAGS += -w
+
+# bzip2 source package
+BZIP2_DIR = $$PWD/vendor/bzip2-1.0.8
+INCLUDEPATH += $$BZIP2_DIR
+
 SOURCES += \
         main.cpp \
-        mainwindow.cpp
+        mainwindow.cpp \
+        backupfile.cpp \
+        cryptoutils.cpp \
+        passworddialog.cpp \
+        $$BZIP2_DIR/blocksort.c \
+        $$BZIP2_DIR/huffman.c \
+        $$BZIP2_DIR/crctable.c \
+        $$BZIP2_DIR/randtable.c \
+        $$BZIP2_DIR/compress.c \
+        $$BZIP2_DIR/decompress.c \
+        $$BZIP2_DIR/bzlib.c
 
 HEADERS += \
         mainwindow.h \
-    backupfile.h
+        backupfile.h \
+        cryptoutils.h \
+        passworddialog.h
 
 FORMS += \
         mainwindow.ui

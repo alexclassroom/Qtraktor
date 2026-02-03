@@ -3,6 +3,7 @@
 
 #include <QMainWindow>
 #include "backupfile.h"
+#include "passworddialog.h"
 
 namespace Ui {
   class MainWindow;
@@ -24,6 +25,7 @@ class MainWindow : public QMainWindow
   private:
     Ui::MainWindow *ui;
     QString backupFilename;
+    QString filePassword;
     void showInGraphicalShell(const QString &pathIn);
 };
 

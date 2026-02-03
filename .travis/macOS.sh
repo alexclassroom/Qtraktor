@@ -4,14 +4,15 @@ set -eu -o pipefail
 
 brew update > /dev/null
 
-brew install qt5
+brew install qt5 openssl pkg-config
 
 brew tap yani-/homebrew-qtifw
 brew install qt-ifw
 
-export PATH="/usr/local/opt/qt/bin:/usr/local/opt/qt-ifw/bin:$PATH"
-export LDFLAGS="-L/usr/local/opt/qt/lib"
-export CPPFLAGS="-I/usr/local/opt/qt/include"
+export PATH="$(brew --prefix qt5)/bin:$(brew --prefix qt-ifw)/bin:$PATH"
+export PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+export LDFLAGS="-L$(brew --prefix qt5)/lib"
+export CPPFLAGS="-I$(brew --prefix qt5)/include"
 
 cd $TRAVIS_BUILD_DIR
 

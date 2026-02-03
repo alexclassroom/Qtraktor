@@ -5,6 +5,8 @@
 #include <QMessageBox>
 #include <QProcessEnvironment>
 #include <QProcess>
+#include "passworddialog.h"
+#include "cryptoutils.h"
 
 MainWindow::MainWindow(QWidget *parent) :
   QMainWindow(parent),
@@ -46,6 +48,7 @@ void MainWindow::openBackup()
 
   ui->backupNameLabel->setText(fileInfo.fileName());
   ui->extractBackupButton->setEnabled(true);
+  filePassword.clear(); // Reset password when opening new file
 }
 
 void MainWindow::extractTo()
@@ -73,7 +76,37 @@ void MainWindow::extractTo()
     return;
   }
 
-  BackupFile backupFile(backupFilename);
+
+  BackupFile configChecker(backupFilename);
+  bool needsPassword = false;
+  CompressionType compressionType = COMPRESSION_NONE;
+
+  if (configChecker.open(QIODevice::ReadOnly)) {
+    if (configChecker.isValid()) {
+
+      needsPassword = configChecker.isEncryptedFile();
+      compressionType = configChecker.getCompressionType();
+      configChecker.close();
+
+      if (needsPassword && filePassword.isEmpty()) {
+
+        PasswordDialog dialog(this);
+        dialog.setWindowTitle(tr("Password Required"));
+
+        if (dialog.exec() == QDialog::Accepted) {
+          filePassword = dialog.getPassword();
+        } else {
+          extractTo.removeRecursively();
+          return;
+        }
+      }
+    } else {
+      configChecker.close();
+    }
+  }
+
+  BackupFile backupFile(backupFilename, filePassword);
+
   if (!backupFile.open(QIODevice::ReadOnly)) {
     QMessageBox::warning(
       this,
@@ -83,6 +116,7 @@ void MainWindow::extractTo()
     );
     return;
   }
+  backupFile.setConfig(needsPassword, compressionType);
 
   if (!backupFile.isValid()) {
      QMessageBox::warning(
@@ -98,23 +132,40 @@ void MainWindow::extractTo()
   ui->backupNameLabel->setVisible(false);
   ui->progressBar->setVisible(true);
 
+  QString lastError;
   connect(&backupFile, &BackupFile::progress, this, &MainWindow::extractProgress);
+  connect(&backupFile, &BackupFile::error, this, [&lastError](const QString &error) {
+    lastError = error;
+  });
 
-  if (!backupFile.extract(extractTo)) {
-      QMessageBox::warning(
+  bool extractionSuccess = backupFile.extract(extractTo);
+  backupFile.close();
+
+  if (!extractionSuccess) {
+    ui->progressBar->setVisible(false);
+    ui->backupNameLabel->setVisible(true);
+
+    filePassword.clear();
+    extractTo.removeRecursively();
+
+    QString errorMessage = tr(
+      "The backup file extraction failed. The file may be corrupted or the password may be incorrect.");
+    if (!lastError.isEmpty()) {
+      errorMessage += "\n\n" + lastError;
+    }
+    QMessageBox::warning(
       this,
-      tr("Corrupted backup file"),
-      tr("The backup file is corrupted."),
+      tr("Extraction failed"),
+      errorMessage,
       QMessageBox::StandardButton::Ok
     );
+  } else {
+    ui->progressBar->setVisible(false);
+    ui->backupNameLabel->setText(tr("Extracted backup in %1").arg(extractTo.path()));
+    ui->backupNameLabel->setVisible(true);
+    ui->extractBackupButton->setDisabled(true);
+    showInGraphicalShell(extractTo.path());
   }
-
-  ui->progressBar->setVisible(false);
-  ui->backupNameLabel->setText(tr("Extracted backup in %1").arg(extractTo.path()));
-  ui->backupNameLabel->setVisible(true);
-  ui->extractBackupButton->setDisabled(true);
-  showInGraphicalShell(extractTo.path());
-  backupFile.close();
 }
 
 void MainWindow::extractProgress(float percent)
@@ -128,22 +179,22 @@ void MainWindow::showInGraphicalShell(const QString &pathIn)
     const QFileInfo fileInfo(pathIn);
 
 #if defined (Q_OS_WIN)
-        QStringList param;
-        if (!fileInfo.isDir())
-            param += QLatin1String("/select,");
-        param += QDir::toNativeSeparators(fileInfo.canonicalFilePath());
-        QProcess::startDetached("explorer", param);
+  QStringList param;
+  if (!fileInfo.isDir())
+    param += QLatin1String("/select,");
+  param += QDir::toNativeSeparators(fileInfo.canonicalFilePath());
+  QProcess::startDetached("explorer", param);
 #endif
 
 #if defined (Q_OS_MAC)
-        QStringList scriptArgs;
-        scriptArgs << QLatin1String("-e")
-                   << QString::fromLatin1("tell application \"Finder\" to reveal POSIX file \"%1\"")
-                                         .arg(fileInfo.canonicalFilePath());
-        QProcess::execute(QLatin1String("/usr/bin/osascript"), scriptArgs);
-        scriptArgs.clear();
-        scriptArgs << QLatin1String("-e")
-                   << QLatin1String("tell application \"Finder\" to activate");
-        QProcess::execute(QLatin1String("/usr/bin/osascript"), scriptArgs);
+  QStringList scriptArgs;
+  scriptArgs << QLatin1String("-e")
+      << QString::fromLatin1("tell application \"Finder\" to reveal POSIX file \"%1\"")
+      .arg(fileInfo.canonicalFilePath());
+  QProcess::execute(QLatin1String("/usr/bin/osascript"), scriptArgs);
+  scriptArgs.clear();
+  scriptArgs << QLatin1String("-e")
+      << QLatin1String("tell application \"Finder\" to activate");
+  QProcess::execute(QLatin1String("/usr/bin/osascript"), scriptArgs);
 #endif
 }
