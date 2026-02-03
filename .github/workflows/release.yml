@@ -5,6 +5,9 @@ on:
     types: [published]
   workflow_dispatch:
 
+env:
+  VERSION: ${{ github.event.release.tag_name || 'latest' }}
+
 jobs:
   build-macos:
     runs-on: macos-latest
@@ -27,13 +30,13 @@ jobs:
           macdeployqt Traktor.app
           codesign --force --deep --sign - Traktor.app
           macdeployqt Traktor.app -dmg
-          mv Traktor.dmg Traktor-latest.dmg
+          mv Traktor.dmg Traktor-${{ env.VERSION }}.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Traktor-latest.dmg
-          path: Traktor-latest.dmg
+          name: Traktor-${{ env.VERSION }}.dmg
+          path: Traktor-${{ env.VERSION }}.dmg
 
   build-windows:
     runs-on: windows-2022
@@ -48,6 +51,7 @@ jobs:
           target: desktop
           arch: win64_msvc2019_64
           tools: tools_ifw
+          cache: true
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -100,13 +104,13 @@ jobs:
 
           # Find and run Qt IFW binarycreator
           $ifw = Get-ChildItem "$env:IQTA_TOOLS\QtInstallerFramework" -Directory | Sort-Object Name -Descending | Select-Object -First 1
-          & "$($ifw.FullName)\bin\binarycreator.exe" -c config\config.xml -p packages Traktor-latest.exe
+          & "$($ifw.FullName)\bin\binarycreator.exe" -c config\config.xml -p packages "Traktor-$env:VERSION.exe"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Traktor-latest.exe
-          path: Traktor-latest.exe
+          name: Traktor-${{ env.VERSION }}.exe
+          path: Traktor-${{ env.VERSION }}.exe
 
   build-linux:
     runs-on: ubuntu-22.04
@@ -123,11 +127,17 @@ jobs:
           qmake Qtraktor.pro
           make -j$(nproc)
 
+      - name: Cache linuxdeploy
+        uses: actions/cache@v4
+        with:
+          path: linuxdeploy*.AppImage
+          key: linuxdeploy-continuous
+
       - name: Create AppImage
         run: |
-          # Install linuxdeploy and Qt plugin
-          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
-          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          # Install linuxdeploy and Qt plugin (skipped if cached)
+          [ -f linuxdeploy-x86_64.AppImage ] || wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          [ -f linuxdeploy-plugin-qt-x86_64.AppImage ] || wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy*.AppImage
 
           # Create .desktop file
@@ -151,13 +161,13 @@ jobs:
             --plugin qt \
             --output appimage
 
-          mv Traktor-*.AppImage Traktor-latest.AppImage
+          mv Traktor-*.AppImage Traktor-x86_64-${{ env.VERSION }}.AppImage
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Traktor-latest.AppImage
-          path: Traktor-latest.AppImage
+          name: Traktor-x86_64-${{ env.VERSION }}.AppImage
+          path: Traktor-x86_64-${{ env.VERSION }}.AppImage
 
   upload:
     if: github.event_name == 'release'
@@ -174,7 +184,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
-            Traktor-latest.dmg/Traktor-latest.dmg \
-            Traktor-latest.exe/Traktor-latest.exe \
-            Traktor-latest.AppImage/Traktor-latest.AppImage \
+            Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg \
+            Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe \
+            Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage \
             --repo "${{ github.repository }}"
