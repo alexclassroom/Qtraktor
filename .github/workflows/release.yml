@@ -54,6 +54,12 @@ jobs:
         with:
           arch: x64
 
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-windows-${{ hashFiles('.github/workflows/release.yml') }}
+
       - name: Install OpenSSL and zlib
         run: vcpkg install openssl:x64-windows zlib:x64-windows
 
@@ -87,7 +93,7 @@ jobs:
 
           # Replace version placeholders
           $version = "${{ github.ref_name }}"
-          $date = Get-Date -Format yyyy-M-d
+          $date = Get-Date -Format yyyy-MM-dd
           (Get-Content "config\config.xml") -replace "develop", $version | Set-Content "config\config.xml"
           (Get-Content "packages\com.servmask.traktor\meta\package.xml") -replace "develop", $version | Set-Content "packages\com.servmask.traktor\meta\package.xml"
           (Get-Content "packages\com.servmask.traktor\meta\package.xml") -replace "release-date", $date | Set-Content "packages\com.servmask.traktor\meta\package.xml"
