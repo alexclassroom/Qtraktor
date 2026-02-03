@@ -238,6 +238,12 @@ jobs:
           upload "Traktor-x86_64-latest.AppImage" \
             "Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage"
 
+          # Upload version.txt (last, so it only updates if uploads succeeded)
+          if [ "$FAILED" -eq 0 ]; then
+            echo -n "${{ env.VERSION }}" > version.txt
+            upload "version.txt" "version.txt"
+          fi
+
           # Track failure but continue
           echo "BUNNY_UPLOAD_FAILED=$FAILED" >> $GITHUB_ENV
 
