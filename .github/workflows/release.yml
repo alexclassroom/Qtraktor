@@ -1,0 +1,180 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: brew install qt@5 openssl pkg-config
+
+      - name: Build
+        run: |
+          export PATH="$(brew --prefix qt@5)/bin:$PATH"
+          export PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig"
+          qmake Qtraktor.pro
+          make -j$(sysctl -n hw.ncpu)
+
+      - name: Create DMG
+        run: |
+          export PATH="$(brew --prefix qt@5)/bin:$PATH"
+          macdeployqt Traktor.app
+          codesign --force --deep --sign - Traktor.app
+          macdeployqt Traktor.app -dmg
+          mv Traktor.dmg Traktor-latest.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Traktor-latest.dmg
+          path: Traktor-latest.dmg
+
+  build-windows:
+    runs-on: windows-2022
+    env:
+      OPENSSL_DIR: 'C:\Program Files\OpenSSL-Win64'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          host: windows
+          target: desktop
+          arch: win64_msvc2019_64
+          tools: tools_ifw
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install OpenSSL
+        run: choco install openssl -y --no-progress
+
+      - name: Install zlib
+        run: vcpkg install zlib:x64-windows
+
+      - name: Set zlib paths
+        shell: pwsh
+        run: |
+          "LIB=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\lib;$env:LIB" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "INCLUDE=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\include;$env:INCLUDE" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build
+        shell: cmd
+        run: |
+          qmake Qtraktor.pro
+          nmake -f Makefile.Release
+
+      - name: Create installer
+        shell: pwsh
+        run: |
+          # Bundle Qt runtime DLLs
+          windeployqt release\Traktor.exe
+
+          # Bundle OpenSSL DLLs
+          Copy-Item "$env:OPENSSL_DIR\bin\libssl*.dll" -Destination release\
+          Copy-Item "$env:OPENSSL_DIR\bin\libcrypto*.dll" -Destination release\
+
+          # Bundle zlib DLL
+          Copy-Item "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\zlib1.dll" -Destination release\
+
+          # Prepare installer package data
+          New-Item -ItemType Directory -Path packages\com.servmask.traktor\data -Force
+          Get-ChildItem release | Copy-Item -Destination packages\com.servmask.traktor\data -Recurse
+
+          # Replace version placeholders
+          $version = "${{ github.ref_name }}"
+          $date = Get-Date -Format yyyy-M-d
+          (Get-Content "config\config.xml") -replace "develop", $version | Set-Content "config\config.xml"
+          (Get-Content "packages\com.servmask.traktor\meta\package.xml") -replace "develop", $version | Set-Content "packages\com.servmask.traktor\meta\package.xml"
+          (Get-Content "packages\com.servmask.traktor\meta\package.xml") -replace "release-date", $date | Set-Content "packages\com.servmask.traktor\meta\package.xml"
+
+          # Find and run Qt IFW binarycreator
+          $ifw = Get-ChildItem "$env:IQTA_TOOLS\QtInstallerFramework" -Directory | Sort-Object Name -Descending | Select-Object -First 1
+          & "$($ifw.FullName)\bin\binarycreator.exe" -c config\config.xml -p packages Traktor-latest.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Traktor-latest.exe
+          path: Traktor-latest.exe
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qtbase5-dev qt5-qmake libssl-dev zlib1g-dev pkg-config libfuse2
+
+      - name: Build
+        run: |
+          qmake Qtraktor.pro
+          make -j$(nproc)
+
+      - name: Create AppImage
+        run: |
+          # Install linuxdeploy and Qt plugin
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy*.AppImage
+
+          # Create .desktop file
+          cat > traktor.desktop << 'DESKTOP'
+          [Desktop Entry]
+          Name=Traktor
+          Comment=WPRESS Extractor
+          Exec=Traktor
+          Icon=traktor
+          Type=Application
+          Categories=Utility;
+          DESKTOP
+          sed -i 's/^          //' traktor.desktop
+
+          # Build AppImage
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --executable Traktor \
+            --desktop-file traktor.desktop \
+            --icon-file icons/traktor.png \
+            --plugin qt \
+            --output appimage
+
+          mv Traktor-*.AppImage Traktor-latest.AppImage
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Traktor-latest.AppImage
+          path: Traktor-latest.AppImage
+
+  upload:
+    if: github.event_name == 'release'
+    needs: [build-macos, build-windows, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" \
+            Traktor-latest.dmg/Traktor-latest.dmg \
+            Traktor-latest.exe/Traktor-latest.exe \
+            Traktor-latest.AppImage/Traktor-latest.AppImage \
+            --repo "${{ github.repository }}"
