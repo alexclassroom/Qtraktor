@@ -10,7 +10,14 @@ env:
 
 jobs:
   build-macos:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+          - runner: macos-13
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -30,13 +37,13 @@ jobs:
           macdeployqt Traktor.app
           codesign --force --deep --sign - Traktor.app
           macdeployqt Traktor.app -dmg
-          mv Traktor.dmg Traktor-${{ env.VERSION }}.dmg
+          mv Traktor.dmg Traktor-${{ matrix.arch }}-${{ env.VERSION }}.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Traktor-${{ env.VERSION }}.dmg
-          path: Traktor-${{ env.VERSION }}.dmg
+          name: Traktor-${{ matrix.arch }}-${{ env.VERSION }}.dmg
+          path: Traktor-${{ matrix.arch }}-${{ env.VERSION }}.dmg
 
   build-windows:
     runs-on: windows-2022
@@ -184,7 +191,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
-            Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg \
+            Traktor-arm64-${{ env.VERSION }}.dmg/Traktor-arm64-${{ env.VERSION }}.dmg \
+            Traktor-x86_64-${{ env.VERSION }}.dmg/Traktor-x86_64-${{ env.VERSION }}.dmg \
             Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe \
             Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage \
             --repo "${{ github.repository }}"
@@ -219,8 +227,11 @@ jobs:
           }
 
           # Upload versioned files
-          upload "Traktor-${{ env.VERSION }}.dmg" \
-            "Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg"
+          upload "Traktor-arm64-${{ env.VERSION }}.dmg" \
+            "Traktor-arm64-${{ env.VERSION }}.dmg/Traktor-arm64-${{ env.VERSION }}.dmg"
+
+          upload "Traktor-x86_64-${{ env.VERSION }}.dmg" \
+            "Traktor-x86_64-${{ env.VERSION }}.dmg/Traktor-x86_64-${{ env.VERSION }}.dmg"
 
           upload "Traktor-${{ env.VERSION }}.exe" \
             "Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe"
@@ -229,8 +240,11 @@ jobs:
             "Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage"
 
           # Upload latest files (stable download links)
-          upload "Traktor-latest.dmg" \
-            "Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg"
+          upload "Traktor-arm64-latest.dmg" \
+            "Traktor-arm64-${{ env.VERSION }}.dmg/Traktor-arm64-${{ env.VERSION }}.dmg"
+
+          upload "Traktor-x86_64-latest.dmg" \
+            "Traktor-x86_64-${{ env.VERSION }}.dmg/Traktor-x86_64-${{ env.VERSION }}.dmg"
 
           upload "Traktor-latest.exe" \
             "Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe"
