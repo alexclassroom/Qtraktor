@@ -36,11 +36,14 @@ jobs:
           export PATH="$(brew --prefix qt@5)/bin:$PATH"
           macdeployqt Traktor.app
 
+      - name: Archive app (preserve symlinks)
+        run: tar -cf Traktor-${{ matrix.arch }}.app.tar Traktor.app
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Traktor-${{ matrix.arch }}.app
-          path: Traktor.app
+          path: Traktor-${{ matrix.arch }}.app.tar
 
   package-macos:
     needs: build-macos
@@ -50,13 +53,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: Traktor-arm64.app
-          path: arm64/Traktor.app
+          path: arm64
 
       - name: Download x86_64 app
         uses: actions/download-artifact@v4
         with:
           name: Traktor-x86_64.app
-          path: x86_64/Traktor.app
+          path: x86_64
+
+      - name: Extract archives
+        run: |
+          tar -xf arm64/Traktor-arm64.app.tar -C arm64
+          tar -xf x86_64/Traktor-x86_64.app.tar -C x86_64
 
       - name: Create universal binary
         run: |
@@ -76,7 +84,18 @@ jobs:
           done
 
       - name: Codesign universal app
-        run: codesign --force --deep --sign - Universal-Traktor.app
+        run: |
+          # Sign frameworks and dylibs inside-out before signing the app
+          find Universal-Traktor.app/Contents/Frameworks -name "*.framework" -type d | while read fw; do
+            codesign --force --sign - "$fw"
+          done
+          find Universal-Traktor.app/Contents/Frameworks -name "*.dylib" -type f | while read lib; do
+            codesign --force --sign - "$lib"
+          done
+          find Universal-Traktor.app/Contents/PlugIns -type f -name "*.dylib" 2>/dev/null | while read lib; do
+            codesign --force --sign - "$lib"
+          done
+          codesign --force --sign - Universal-Traktor.app
 
       - name: Create DMG
         run: |
