@@ -31,19 +31,63 @@ jobs:
           qmake Qtraktor.pro
           make -j$(sysctl -n hw.ncpu)
 
-      - name: Create DMG
+      - name: Bundle Qt frameworks
         run: |
           export PATH="$(brew --prefix qt@5)/bin:$PATH"
           macdeployqt Traktor.app
-          codesign --force --deep --sign - Traktor.app
-          macdeployqt Traktor.app -dmg
-          mv Traktor.dmg Traktor-${{ matrix.arch }}-${{ env.VERSION }}.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Traktor-${{ matrix.arch }}-${{ env.VERSION }}.dmg
-          path: Traktor-${{ matrix.arch }}-${{ env.VERSION }}.dmg
+          name: Traktor-${{ matrix.arch }}.app
+          path: Traktor.app
+
+  package-macos:
+    needs: build-macos
+    runs-on: macos-latest
+    steps:
+      - name: Download arm64 app
+        uses: actions/download-artifact@v4
+        with:
+          name: Traktor-arm64.app
+          path: arm64/Traktor.app
+
+      - name: Download x86_64 app
+        uses: actions/download-artifact@v4
+        with:
+          name: Traktor-x86_64.app
+          path: x86_64/Traktor.app
+
+      - name: Create universal binary
+        run: |
+          cp -R arm64/Traktor.app Universal-Traktor.app
+
+          # Merge all Mach-O binaries with lipo
+          find arm64/Traktor.app -type f | while read arm_file; do
+            rel="${arm_file#arm64/Traktor.app/}"
+            intel_file="x86_64/Traktor.app/$rel"
+            universal_file="Universal-Traktor.app/$rel"
+
+            # Check if both files exist and are Mach-O
+            if [ -f "$intel_file" ] && file "$arm_file" | grep -q "Mach-O"; then
+              echo "Merging: $rel"
+              lipo -create "$arm_file" "$intel_file" -output "$universal_file"
+            fi
+          done
+
+      - name: Codesign universal app
+        run: codesign --force --deep --sign - Universal-Traktor.app
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname Traktor -srcfolder Universal-Traktor.app \
+            -ov -format UDZO Traktor-${{ env.VERSION }}.dmg
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Traktor-${{ env.VERSION }}.dmg
+          path: Traktor-${{ env.VERSION }}.dmg
 
   build-windows:
     runs-on: windows-2022
@@ -178,7 +222,7 @@ jobs:
 
   upload:
     if: github.event_name == 'release'
-    needs: [build-macos, build-windows, build-linux]
+    needs: [package-macos, build-windows, build-linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -191,8 +235,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "${{ github.event.release.tag_name }}" \
-            Traktor-arm64-${{ env.VERSION }}.dmg/Traktor-arm64-${{ env.VERSION }}.dmg \
-            Traktor-x86_64-${{ env.VERSION }}.dmg/Traktor-x86_64-${{ env.VERSION }}.dmg \
+            Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg \
             Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe \
             Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage \
             --repo "${{ github.repository }}"
@@ -227,11 +270,8 @@ jobs:
           }
 
           # Upload versioned files
-          upload "Traktor-arm64-${{ env.VERSION }}.dmg" \
-            "Traktor-arm64-${{ env.VERSION }}.dmg/Traktor-arm64-${{ env.VERSION }}.dmg"
-
-          upload "Traktor-x86_64-${{ env.VERSION }}.dmg" \
-            "Traktor-x86_64-${{ env.VERSION }}.dmg/Traktor-x86_64-${{ env.VERSION }}.dmg"
+          upload "Traktor-${{ env.VERSION }}.dmg" \
+            "Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg"
 
           upload "Traktor-${{ env.VERSION }}.exe" \
             "Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe"
@@ -240,11 +280,8 @@ jobs:
             "Traktor-x86_64-${{ env.VERSION }}.AppImage/Traktor-x86_64-${{ env.VERSION }}.AppImage"
 
           # Upload latest files (stable download links)
-          upload "Traktor-arm64-latest.dmg" \
-            "Traktor-arm64-${{ env.VERSION }}.dmg/Traktor-arm64-${{ env.VERSION }}.dmg"
-
-          upload "Traktor-x86_64-latest.dmg" \
-            "Traktor-x86_64-${{ env.VERSION }}.dmg/Traktor-x86_64-${{ env.VERSION }}.dmg"
+          upload "Traktor-latest.dmg" \
+            "Traktor-${{ env.VERSION }}.dmg/Traktor-${{ env.VERSION }}.dmg"
 
           upload "Traktor-latest.exe" \
             "Traktor-${{ env.VERSION }}.exe/Traktor-${{ env.VERSION }}.exe"
