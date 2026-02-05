@@ -99,7 +99,8 @@ jobs:
 
       - name: Create DMG
         run: |
-          hdiutil create -volname Traktor -srcfolder Universal-Traktor.app \
+          mv Universal-Traktor.app Traktor.app
+          hdiutil create -volname Traktor -srcfolder Traktor.app \
             -ov -format UDZO Traktor-${{ env.VERSION }}.dmg
 
       - name: Upload artifact
