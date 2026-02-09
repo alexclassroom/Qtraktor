@@ -66,7 +66,7 @@ Makefile.*
 *.user
 *.VC.db
 *.VC.VC.opendb
-
+.idea
 # Xcode
 xcuserdata/
 DerivedData/

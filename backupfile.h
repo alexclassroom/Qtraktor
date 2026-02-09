@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QJsonObject>
 #include <QString>
+#include <QDateTime>
 #include "cryptoutils.h"
 
 class BackupFile : public QFile
@@ -40,6 +41,10 @@ public:
 
   bool isValid()
   {
+    if (size() == 0) {
+      return true;
+    }
+
     loadConfig();
 
     if (!seek(size() - kHeaderSize)) {
@@ -59,13 +64,28 @@ public:
 
   bool extract(QDir extractTo)
   {
+    if (size() == 0) {
+      return true;
+    }
+
     if (compressionType == COMPRESSION_NONE && !isEncrypted) {
       loadConfig();
     }
 
+    auto log = [&](const QString& msg, bool isError = false) {
+       if (!isError) {
+         return;
+       }
+       QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
+       QString formattedMsg = QString("[%1] %2").arg(timestamp, msg);
+       emit logMessage(formattedMsg);
+       emit error(msg);
+    };
+
     while (!atEnd()) {
       HeaderInfo info;
       if (!readHeader(info)) {
+        log("Failed to read file header. The backup file might be corrupted or truncated.", true);
         return false;
       }
 
@@ -74,15 +94,17 @@ public:
       }
 
       const QString fullPath = buildOutputPath(extractTo, info.fileName, info.filePath);
-      QFile out(fullPath);
-      if (!out.open(QIODevice::WriteOnly)) {
-        return false;
-      }
 
       QByteArray fileContent;
       if (!readExact(info.fileSize, fileContent)) {
-        out.close();
+        log(QString("Fatal: Failed to read content data for file: %1. Archive might be truncated.").arg(info.fileName), true);
         return false;
+      }
+
+      QFile out(fullPath);
+      if (!out.open(QIODevice::WriteOnly)) {
+        log(QString("Error: Failed to create output file: %1 (Permissions?). Skipping.").arg(fullPath), true);
+        continue;
       }
 
       const bool isCompressed = !CryptoUtils::isConfigFile(info.fileName) && compressionType != COMPRESSION_NONE;
@@ -101,27 +123,28 @@ public:
       }
 
       if (!processError.isEmpty()) {
-        const QString errorMsg = QString("Error processing file '%1': %2").arg(info.fileName, processError);
-        qWarning() << errorMsg;
-        emit error(errorMsg);
+        log(QString("Error processing file '%1': %2. Skipping.").arg(info.fileName, processError), true);
         out.close();
-        return false;
+        continue;
       }
 
       if (out.write(processedContent) != processedContent.size()) {
+        log(QString("Error: Failed to write to destination file: %1 (Disk full?). Skipping.").arg(fullPath), true);
         out.close();
-        return false;
+        continue;
       }
 
       out.close();
     }
 
+    log("Unexpected end of backup file archive.", true);
     return false;
   }
 
 signals:
   void progress(float percent);
   void error(const QString& errorMessage);
+  void logMessage(const QString& msg);
 
 protected:
   qint64 readData(char* data, qint64 maxlen) override

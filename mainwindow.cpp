@@ -14,6 +14,7 @@ MainWindow::MainWindow(QWidget *parent) :
 {
   ui->setupUi(this);
   ui->progressBar->setVisible(false);
+  ui->logTextEdit->setVisible(false);
 }
 
 MainWindow::~MainWindow()
@@ -129,8 +130,13 @@ void MainWindow::extractTo()
     return;
   }
 
-  ui->backupNameLabel->setVisible(false);
   ui->progressBar->setVisible(true);
+  ui->logTextEdit->clear();
+  ui->logTextEdit->setVisible(false);
+
+  // Disable controls during extraction
+  ui->openBackupButton->setEnabled(false);
+  ui->extractBackupButton->setEnabled(false);
 
   QString lastError;
   connect(&backupFile, &BackupFile::progress, this, &MainWindow::extractProgress);
@@ -138,12 +144,20 @@ void MainWindow::extractTo()
     lastError = error;
   });
 
+  connect(&backupFile, &BackupFile::logMessage, this, [this](const QString &msg) {
+    ui->logTextEdit->setVisible(true);
+    ui->logTextEdit->append(msg);
+  });
+
   bool extractionSuccess = backupFile.extract(extractTo);
   backupFile.close();
 
+  // Re-enable generic controls
+  ui->openBackupButton->setEnabled(true);
+
   if (!extractionSuccess) {
     ui->progressBar->setVisible(false);
-    ui->backupNameLabel->setVisible(true);
+    ui->extractBackupButton->setEnabled(true); // Re-enable extract on failure
 
     filePassword.clear();
     extractTo.removeRecursively();
@@ -162,7 +176,6 @@ void MainWindow::extractTo()
   } else {
     ui->progressBar->setVisible(false);
     ui->backupNameLabel->setText(tr("Extracted backup in %1").arg(extractTo.path()));
-    ui->backupNameLabel->setVisible(true);
     ui->extractBackupButton->setDisabled(true);
     showInGraphicalShell(extractTo.path());
   }
