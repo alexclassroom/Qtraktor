@@ -14,6 +14,7 @@ MainWindow::MainWindow(QWidget *parent) :
 {
   ui->setupUi(this);
   ui->progressBar->setVisible(false);
+  ui->logTextEdit->setVisible(false);
 }
 
 MainWindow::~MainWindow()
@@ -130,12 +131,12 @@ void MainWindow::extractTo()
   }
 
   ui->progressBar->setVisible(true);
-  ui->logTextEdit->clear(); // Clear previous logs
+  ui->logTextEdit->clear();
+  ui->logTextEdit->setVisible(false);
 
   // Disable controls during extraction
   ui->openBackupButton->setEnabled(false);
   ui->extractBackupButton->setEnabled(false);
-  ui->verboseLogCheckBox->setEnabled(false);
 
   QString lastError;
   connect(&backupFile, &BackupFile::progress, this, &MainWindow::extractProgress);
@@ -144,15 +145,15 @@ void MainWindow::extractTo()
   });
 
   connect(&backupFile, &BackupFile::logMessage, this, [this](const QString &msg) {
+    ui->logTextEdit->setVisible(true);
     ui->logTextEdit->append(msg);
   });
 
-  bool extractionSuccess = backupFile.extract(extractTo, ui->verboseLogCheckBox->isChecked());
+  bool extractionSuccess = backupFile.extract(extractTo);
   backupFile.close();
 
   // Re-enable generic controls
   ui->openBackupButton->setEnabled(true);
-  ui->verboseLogCheckBox->setEnabled(true);
 
   if (!extractionSuccess) {
     ui->progressBar->setVisible(false);

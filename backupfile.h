@@ -6,7 +6,6 @@
 #include <QFile>
 #include <QJsonObject>
 #include <QString>
-#include <QTextStream>
 #include <QDateTime>
 #include "cryptoutils.h"
 
@@ -63,7 +62,7 @@ public:
     return true;
   }
 
-  bool extract(QDir extractTo, bool logAllFiles = true)
+  bool extract(QDir extractTo)
   {
     if (size() == 0) {
       return true;
@@ -73,28 +72,15 @@ public:
       loadConfig();
     }
 
-    QFile reportFile(extractTo.filePath("export_report.txt"));
-    if (!reportFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Append)) {
-      emit error("Failed to create export report file.");
-    }
-    QTextStream reportStream(&reportFile);
     auto log = [&](const QString& msg, bool isError = false) {
-       if (!isError && !logAllFiles) {
+       if (!isError) {
          return;
        }
        QString timestamp = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss");
        QString formattedMsg = QString("[%1] %2").arg(timestamp, msg);
        emit logMessage(formattedMsg);
-       if (reportFile.isOpen()) {
-         reportStream << formattedMsg << "\n";
-         reportStream.flush();
-       }
-       if (isError) {
-         emit error(msg);
-       }
+       emit error(msg);
     };
-
-    log("Starting extraction...");
 
     while (!atEnd()) {
       HeaderInfo info;
@@ -104,7 +90,6 @@ public:
       }
 
       if (info.isEof) {
-        log("Extraction completed successfully.");
         return true;
       }
 
@@ -150,7 +135,6 @@ public:
       }
 
       out.close();
-      log(QString("Extracted: %1").arg(info.fileName));
     }
 
     log("Unexpected end of backup file archive.", true);

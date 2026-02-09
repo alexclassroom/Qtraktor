@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>500</width>
-    <height>320</height>
+    <height>160</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -55,16 +55,6 @@
       </item>
       <item>
        <layout class="QHBoxLayout" name="layoutAction">
-        <item>
-         <widget class="QCheckBox" name="verboseLogCheckBox">
-          <property name="text">
-           <string>Verbose mode</string>
-          </property>
-          <property name="checked">
-           <bool>false</bool>
-          </property>
-         </widget>
-        </item>
         <item>
          <spacer name="horizontalSpacer">
           <property name="orientation">
