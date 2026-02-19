@@ -7,6 +7,7 @@
 #include <QProcess>
 #include "passworddialog.h"
 #include "cryptoutils.h"
+#include <QFileOpenEvent>
 
 MainWindow::MainWindow(QWidget *parent) :
   QMainWindow(parent),
@@ -15,6 +16,10 @@ MainWindow::MainWindow(QWidget *parent) :
   ui->setupUi(this);
   ui->progressBar->setVisible(false);
   ui->logTextEdit->setVisible(false);
+
+  connect(ui->dropZone, &DropOverlay::fileDropped, this, &MainWindow::openBackupFile);
+  connect(ui->dropZone, &DropOverlay::clicked, this, &MainWindow::openBackup);
+  ui->clearButton->setVisible(false);
 }
 
 MainWindow::~MainWindow()
@@ -47,9 +52,19 @@ void MainWindow::openBackup()
     return;
   }
 
-  ui->backupNameLabel->setText(fileInfo.fileName());
-  ui->extractBackupButton->setEnabled(true);
+  openBackupFile(backupFilename);
   filePassword.clear(); // Reset password when opening new file
+}
+
+void MainWindow::clearFile()
+{
+  backupFilename.clear();
+  filePassword.clear();
+  ui->dropZone->setFileName(QString());
+  ui->extractBackupButton->setEnabled(false);
+  ui->clearButton->setVisible(false);
+  ui->progressBar->setVisible(false);
+  ui->logTextEdit->setVisible(false);
 }
 
 void MainWindow::extractTo()
@@ -175,7 +190,7 @@ void MainWindow::extractTo()
     );
   } else {
     ui->progressBar->setVisible(false);
-    ui->backupNameLabel->setText(tr("Extracted backup in %1").arg(extractTo.path()));
+    ui->dropZone->setFileName(tr("Extracted backup in %1").arg(extractTo.path()));
     ui->extractBackupButton->setDisabled(true);
     showInGraphicalShell(extractTo.path());
   }
@@ -210,4 +225,31 @@ void MainWindow::showInGraphicalShell(const QString &pathIn)
       << QLatin1String("tell application \"Finder\" to activate");
   QProcess::execute(QLatin1String("/usr/bin/osascript"), scriptArgs);
 #endif
+}
+
+void MainWindow::openBackupFile(const QString &filename)
+{
+    backupFilename = filename;
+    QFileInfo fileInfo(backupFilename);
+
+    if (!fileInfo.isReadable()) {
+        QMessageBox::warning(this, tr("Unable to open file"),
+                           tr("Unable to open file: %1").arg(backupFilename),
+                           QMessageBox::StandardButton::Ok);
+        return;
+    }
+
+    ui->dropZone->setFileName(fileInfo.fileName());
+    ui->extractBackupButton->setEnabled(true);
+    ui->clearButton->setVisible(true);
+}
+
+bool MainWindow::event(QEvent *event)
+{
+    if (event->type() == QEvent::FileOpen) {
+        QFileOpenEvent *openEvent = static_cast<QFileOpenEvent *>(event);
+        openBackupFile(openEvent->file());
+        return true;
+    }
+    return QMainWindow::event(event);
 }
