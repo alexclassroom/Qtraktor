@@ -97,11 +97,48 @@ jobs:
           done
           codesign --force --sign - Universal-Traktor.app
 
+      - name: Rename app before checkout
+        run: mv Universal-Traktor.app /tmp/Traktor.app
+
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            icons/background.png
+            icons/.VolumeIcon.icns
+          sparse-checkout-cone-mode: false
+
       - name: Create DMG
         run: |
-          mv Universal-Traktor.app Traktor.app
-          hdiutil create -volname Traktor -srcfolder Traktor.app \
-            -ov -format UDZO Traktor-${{ env.VERSION }}.dmg
+          brew install create-dmg fileicon
+          mv /tmp/Traktor.app Traktor.app
+
+          # Create DMG with background, icon layout, and Applications symlink
+          create-dmg \
+            --volname "Traktor" \
+            --volicon "icons/.VolumeIcon.icns" \
+            --background "icons/background.png" \
+            --window-pos 200 120 \
+            --window-size 576 384 \
+            --icon-size 64 \
+            --text-size 14 \
+            --icon "Traktor.app" 125 195 \
+            --app-drop-link 410 195 \
+            --no-internet-enable \
+            "Traktor-${{ env.VERSION }}.dmg" \
+            "Traktor.app"
+
+          # Post-process: replace symlink with Finder alias and set Applications icon
+          hdiutil convert "Traktor-${{ env.VERSION }}.dmg" -format UDRW -o rw-traktor.dmg -ov
+          rm "Traktor-${{ env.VERSION }}.dmg"
+          hdiutil attach rw-traktor.dmg
+          rm /Volumes/Traktor/Applications
+          osascript -e 'tell application "Finder" to make new alias file at (POSIX file "/Volumes/Traktor" as alias) to (POSIX file "/Applications" as alias) with properties {name:"Applications"}'
+          fileicon set "/Volumes/Traktor/Applications" /System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/ApplicationsFolderIcon.icns
+          rm -rf /Volumes/Traktor/.fseventsd
+          sync && sleep 1
+          hdiutil detach /Volumes/Traktor
+          hdiutil convert rw-traktor.dmg -format UDZO -o "Traktor-${{ env.VERSION }}.dmg"
+          rm rw-traktor.dmg
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
