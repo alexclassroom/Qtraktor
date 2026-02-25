@@ -3,7 +3,6 @@
 #include <QFileDialog>
 #include <QIODevice>
 #include <QMessageBox>
-#include <QProcessEnvironment>
 #include <QProcess>
 #include "passworddialog.h"
 #include "cryptoutils.h"
@@ -15,7 +14,6 @@ MainWindow::MainWindow(QWidget *parent) :
   ui->setupUi(this);
   ui->progressBar->setVisible(false);
   ui->logTextEdit->setVisible(false);
-
   connect(ui->dropZone, &DropOverlay::fileDropped, this, &MainWindow::openBackupFile);
   connect(ui->dropZone, &DropOverlay::clicked, this, &MainWindow::openBackup);
   ui->clearButton->setVisible(false);
@@ -78,8 +76,18 @@ void MainWindow::extractTo()
     return;
   }
 
+  extractToPath(extractToDir);
+}
+
+void MainWindow::setPassword(const QString &password)
+{
+  filePassword = password;
+}
+
+void MainWindow::extractToPath(const QString &destDir)
+{
   QFileInfo fileInfo(backupFilename);
-  QDir extractTo(extractToDir + "/" + fileInfo.baseName());
+  QDir extractTo(destDir + "/" + fileInfo.baseName());
 
   if (!QDir().mkdir(extractTo.path())) {
      QMessageBox::warning(
@@ -228,18 +236,17 @@ void MainWindow::showInGraphicalShell(const QString &pathIn)
 
 void MainWindow::openBackupFile(const QString &filename)
 {
-    QFileInfo fileInfo(filename);
+    backupFilename = filename;
+    QFileInfo fileInfo(backupFilename);
 
     if (!fileInfo.isReadable()) {
         QMessageBox::warning(this, tr("Unable to open file"),
-                           tr("Unable to open file: %1").arg(filename),
+                           tr("Unable to open file: %1").arg(backupFilename),
                            QMessageBox::StandardButton::Ok);
         return;
     }
 
-    backupFilename = filename;
     ui->dropZone->setFileName(fileInfo.fileName());
     ui->extractBackupButton->setEnabled(true);
     ui->clearButton->setVisible(true);
 }
-

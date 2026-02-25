@@ -10,6 +10,7 @@ greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
 TARGET = Traktor
 TEMPLATE = app
+QMAKE_TARGET_BUNDLE_PREFIX = com.servmask
 
 # The following define makes your compiler emit warnings if you use
 # any feature of Qt which has been marked as deprecated (the exact warnings
@@ -96,6 +97,10 @@ FORMS += \
 
 RC_ICONS = icons/traktor.ico
 ICON = icons/traktor.icns
+macx: QMAKE_INFO_PLIST = Info.plist
+macx: FILE_ICON.files = icons/file.icns
+macx: FILE_ICON.path = Contents/Resources
+macx: QMAKE_BUNDLE_DATA += FILE_ICON
 
 # Default rules for deployment.
 qnx: target.path = /tmp/$${TARGET}/bin
