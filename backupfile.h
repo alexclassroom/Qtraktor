@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QString>
 #include <QDateTime>
+#include <QRegularExpression>
+#include <zlib.h>
 #include "cryptoutils.h"
 
 class BackupFile : public QFile
@@ -17,9 +19,9 @@ public:
   explicit BackupFile(const QString& filename, const QString& password = QString())
     : QFile(filename),
       bytesRead(0),
-      eof(kHeaderSize, '\0'),
       filePassword(password),
       isEncrypted(false),
+      isV2(false),
       compressionType(COMPRESSION_NONE)
   {}
 
@@ -51,9 +53,12 @@ public:
       return false;
     }
 
-    if (read(kHeaderSize) != eof) {
+    const QByteArray eofBlock = read(kHeaderSize);
+    if (!isEofBlock(eofBlock)) {
       return false;
     }
+
+    isV2 = isV2EofBlock(eofBlock);
 
     if (!seek(0)) {
       return false;
@@ -70,6 +75,10 @@ public:
 
     if (compressionType == COMPRESSION_NONE && !isEncrypted) {
       loadConfig();
+    }
+
+    if (isV2 && !verifyArchiveCrc()) {
+      return false;
     }
 
     auto log = [&](const QString& msg, bool isError = false) {
@@ -135,6 +144,13 @@ public:
       }
 
       out.close();
+
+      if (isV2 && !info.crc32.isEmpty()) {
+        const QString actualCrc = computeFileCrc32(fullPath);
+        if (!actualCrc.isEmpty() && actualCrc != info.crc32) {
+          log(QString("CRC mismatch for file '%1': expected %2, got %3").arg(info.fileName, info.crc32, actualCrc), true);
+        }
+      }
     }
 
     log("Unexpected end of backup file archive.", true);
@@ -164,11 +180,13 @@ protected:
 
 private:
   static constexpr qint64 kHeaderSize = 4377;
+  static constexpr qint64 kCrcChunkSize = 524288;
 
   struct HeaderInfo
   {
     QString fileName;
     QString filePath;
+    QString crc32;
     qint64 fileSize = 0;
     bool isEof = false;
   };
@@ -182,7 +200,7 @@ private:
       return false;
     }
 
-    if (header == eof) {
+    if (isEofBlock(header)) {
       outInfo.isEof = true;
       return true;
     }
@@ -198,7 +216,13 @@ private:
     }
     outInfo.fileSize = fileSize;
 
-    outInfo.filePath = parseNullTerminatedString(header, 281, 4096);
+    if (isV2) {
+      outInfo.filePath = parseNullTerminatedString(header, 281, 4088);
+      outInfo.crc32 = parseNullTerminatedString(header, 4369, 8);
+    } else {
+      outInfo.filePath = parseNullTerminatedString(header, 281, 4096);
+    }
+
     return true;
   }
 
@@ -210,6 +234,98 @@ private:
       bytes = bytes.left(nullPos);
     }
     return QString::fromUtf8(bytes.trimmed());
+  }
+
+  static bool isEofBlock(const QByteArray& block)
+  {
+    if (block.size() != kHeaderSize) {
+      return false;
+    }
+    if (isV2EofBlock(block)) {
+      return true;
+    }
+    return block == QByteArray(kHeaderSize, '\0');
+  }
+
+  static bool isV2EofBlock(const QByteArray& block)
+  {
+    if (block.size() != kHeaderSize) {
+      return false;
+    }
+
+    // v2 EOF: a255(null) + a14(size) + a4100(null) + a8(crc)
+    // Filename must be empty (all null) to distinguish from file headers
+    if (block.left(255) != QByteArray(255, '\0')) {
+      return false;
+    }
+
+    const QString sizeField = parseNullTerminatedString(block, 255, 14);
+    if (sizeField.isEmpty()) {
+      return false;
+    }
+
+    const QByteArray crcField = block.mid(4369, 8);
+    static const QRegularExpression hexPattern("^[0-9a-fA-F]{8}$");
+    return hexPattern.match(QString::fromLatin1(crcField)).hasMatch();
+  }
+
+  bool verifyArchiveCrc()
+  {
+    const qint64 dataSize = size() - kHeaderSize;
+    if (dataSize <= 0) {
+      return true;
+    }
+
+    // Read EOF block to extract expected CRC (last 8 bytes)
+    if (!seek(size() - kHeaderSize)) {
+      return true;
+    }
+    const QByteArray eofBlock = QFile::read(kHeaderSize);
+    const QString expectedCrc = QString::fromLatin1(eofBlock.mid(4369, 8));
+
+    if (!seek(0)) {
+      return true;
+    }
+
+    uLong crc = ::crc32(0L, Z_NULL, 0);
+    qint64 remaining = dataSize;
+
+    while (remaining > 0) {
+      const qint64 toRead = qMin(remaining, kCrcChunkSize);
+      const QByteArray chunk = QFile::read(toRead);
+      if (chunk.isEmpty()) {
+        break;
+      }
+      crc = ::crc32(crc, reinterpret_cast<const Bytef*>(chunk.constData()), chunk.size());
+      remaining -= chunk.size();
+    }
+
+    const QString actualCrc = QString::asprintf("%08x", static_cast<unsigned int>(crc));
+    if (actualCrc != expectedCrc) {
+      emit error(QString("This backup file is damaged and can't be extracted.<br />Try downloading or transferring the file again.<br /><br /><b>Reason:</b> File integrity check failed (CRC mismatch). <a href=\"https://help.servmask.com/knowledgebase/import-failed-crc-mismatch/\">Technical details</a>"));
+      return false;
+    }
+
+    seek(0);
+    return true;
+  }
+
+  static QString computeFileCrc32(const QString& filePath)
+  {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+      return QString();
+    }
+
+    uLong crc = ::crc32(0L, Z_NULL, 0);
+
+    while (!file.atEnd()) {
+      const QByteArray chunk = file.read(kCrcChunkSize);
+      crc = ::crc32(crc, reinterpret_cast<const Bytef*>(chunk.constData()), chunk.size());
+    }
+
+    file.close();
+    return QString::asprintf("%08x", static_cast<unsigned int>(crc));
   }
 
   bool readExact(qint64 sizeToRead, QByteArray& out)
@@ -236,9 +352,9 @@ private:
 
 private:
   qint64 bytesRead;
-  QByteArray eof;
   QString filePassword;
   bool isEncrypted;
+  bool isV2;
   CompressionType compressionType;
 };
 
