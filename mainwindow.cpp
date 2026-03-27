@@ -3,6 +3,7 @@
 #include <QFileDialog>
 #include <QIODevice>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QProcess>
 #include "passworddialog.h"
 #include "cryptoutils.h"
@@ -26,16 +27,18 @@ MainWindow::~MainWindow()
 
 void MainWindow::openBackup()
 {
-  backupFilename = QFileDialog::getOpenFileName(
+  QString selectedFile = QFileDialog::getOpenFileName(
     this,
     tr("Open a backup"),
     "",
     tr("WordPress backup (*.wpress)")
   );
 
-  if (backupFilename.isNull()) {
+  if (selectedFile.isNull()) {
     return;
   }
+
+  backupFilename = selectedFile;
 
   QFileInfo fileInfo(backupFilename);
 
@@ -88,6 +91,40 @@ void MainWindow::extractToPath(const QString &destDir)
 {
   QFileInfo fileInfo(backupFilename);
   QDir extractTo(destDir + "/" + fileInfo.baseName());
+
+  if (extractTo.exists()) {
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle(tr("Directory already exists"));
+    msgBox.setText(tr("The directory %1 already exists.").arg(extractTo.path()));
+    QPushButton *wipeBtn = msgBox.addButton(tr("Wipe && Extract"), QMessageBox::DestructiveRole);
+    QPushButton *newBtn = msgBox.addButton(tr("Create New Folder"), QMessageBox::ActionRole);
+    msgBox.addButton(QMessageBox::Cancel);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == wipeBtn) {
+      if (!extractTo.removeRecursively()) {
+        QMessageBox::warning(this, tr("Unable to remove directory"),
+          tr("Unable to remove directory %1. Fix permissions and try again.").arg(extractTo.path()),
+          QMessageBox::StandardButton::Ok);
+        return;
+      }
+    } else if (msgBox.clickedButton() == newBtn) {
+      QString basePath = destDir + "/" + fileInfo.baseName();
+      int suffix = 1;
+      while (QDir(basePath + " (" + QString::number(suffix) + ")").exists() && suffix <= 100) {
+        suffix++;
+      }
+      if (suffix > 100) {
+        QMessageBox::warning(this, tr("Too many directories"),
+          tr("Too many directories with the name %1. Remove some and try again.").arg(fileInfo.baseName()),
+          QMessageBox::StandardButton::Ok);
+        return;
+      }
+      extractTo = QDir(basePath + " (" + QString::number(suffix) + ")");
+    } else {
+      return;
+    }
+  }
 
   if (!QDir().mkdir(extractTo.path())) {
      QMessageBox::warning(
