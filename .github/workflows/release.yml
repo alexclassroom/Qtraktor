@@ -199,12 +199,15 @@ jobs:
           Copy-Item "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\libcrypto*.dll" -Destination release\
           Copy-Item "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows\bin\zlib1.dll" -Destination release\
 
+          # Bundle file type icon for .wpress association
+          Copy-Item "icons\file.ico" -Destination release\
+
           # Prepare installer package data
           New-Item -ItemType Directory -Path packages\com.servmask.traktor\data -Force
           Get-ChildItem release | Copy-Item -Destination packages\com.servmask.traktor\data -Recurse
 
           # Replace version placeholders
-          $version = "${{ github.ref_name }}"
+          $version = "${{ env.VERSION }}"
           $date = Get-Date -Format yyyy-MM-dd
           (Get-Content "config\config.xml") -replace "develop", $version | Set-Content "config\config.xml"
           (Get-Content "packages\com.servmask.traktor\meta\package.xml") -replace "develop", $version | Set-Content "packages\com.servmask.traktor\meta\package.xml"
@@ -248,17 +251,27 @@ jobs:
           [ -f linuxdeploy-plugin-qt-x86_64.AppImage ] || wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
           chmod +x linuxdeploy*.AppImage
 
-          # Create .desktop file
+          # Create .desktop file with file association and context menu action
           cat > traktor.desktop << 'DESKTOP'
           [Desktop Entry]
           Name=Traktor
           Comment=WPRESS Extractor
-          Exec=Traktor
+          Exec=Traktor %f
           Icon=traktor
           Type=Application
           Categories=Utility;
+          MimeType=application/x-wpress;
+          Actions=Extract;
+
+          [Desktop Action Extract]
+          Name=Extract with Traktor
+          Exec=Traktor %f
           DESKTOP
           sed -i 's/^          //' traktor.desktop
+
+          # Install MIME type definition
+          mkdir -p AppDir/usr/share/mime/packages
+          cp wpress.xml AppDir/usr/share/mime/packages/
 
           # Build AppImage
           ./linuxdeploy-x86_64.AppImage \
