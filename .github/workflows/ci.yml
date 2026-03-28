@@ -136,9 +136,59 @@ jobs:
           export PATH="$(brew --prefix qt@5)/bin:$PATH"
           macdeployqt Traktor.app
           codesign --force --deep --sign - Traktor.app
+
+      - name: Build PKG installer
+        if: github.event_name == 'pull_request'
+        run: |
+          # Verify app bundle exists and has content
+          echo "App bundle contents:"
+          ls -la Traktor.app/Contents/MacOS/
+          echo "App bundle size: $(du -sh Traktor.app | cut -f1)"
+
+          # Build component package using --root with component plist.
+          # The component plist disables bundle relocation (prevents installer
+          # from finding an existing Traktor.app elsewhere and installing there).
+          mkdir -p /tmp/pkg-root
+          cp -R Traktor.app /tmp/pkg-root/
+
+          pkgbuild --analyze --root /tmp/pkg-root /tmp/component.plist
+          /usr/libexec/PlistBuddy -c "Set :0:BundleIsRelocatable false" /tmp/component.plist
+
+          pkgbuild \
+            --root /tmp/pkg-root \
+            --component-plist /tmp/component.plist \
+            --scripts scripts/macos-pkg \
+            --identifier com.servmask.traktor \
+            --version 0.0.0-dev \
+            --install-location /Applications \
+            --ownership recommended \
+            traktor-component.pkg
+
+          rm -rf /tmp/pkg-root
+
+          # Verify component package payload
+          echo "Component package size: $(du -sh traktor-component.pkg | cut -f1)"
+
+          # Build product archive with custom welcome/conclusion text
+          productbuild \
+            --distribution scripts/macos-pkg/distribution.xml \
+            --resources scripts/macos-pkg/resources \
+            --package-path . \
+            Traktor.pkg
+
+          echo "Final PKG size: $(du -sh Traktor.pkg | cut -f1)"
+
+          # Also keep the app tar for direct testing
           tar -cf Traktor.app.tar Traktor.app
 
-      - name: Upload build artifact
+      - name: Upload PKG artifact
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Traktor-macOS-PKG
+          path: Traktor.pkg
+
+      - name: Upload app artifact
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
         with:
@@ -198,6 +248,12 @@ jobs:
           cd tests
           qmake tests.pro
           nmake -f Makefile.Release
+
+      - name: Deploy test dependencies
+        shell: cmd
+        run: |
+          cd tests
+          windeployqt release\tst_qtraktor.exe
 
       - name: Run tests
         shell: cmd
