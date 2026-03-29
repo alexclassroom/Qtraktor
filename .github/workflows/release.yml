@@ -337,43 +337,40 @@ jobs:
           cd /tmp/homebrew-tap
 
           cat > Casks/traktor.rb << CASKEOF
-          cask "traktor" do
-            version "$CLEAN_VERSION"
-            sha256 "$SHA256"
+cask "traktor" do
+  version "$CLEAN_VERSION"
+  sha256 "$SHA256"
 
-            url "https://github.com/servmask/Qtraktor/releases/download/v#{version}/Traktor-v#{version}.pkg"
-            name "Traktor"
-            desc "Extract WordPress .wpress backup files with CLI and MCP server"
-            homepage "https://github.com/servmask/Qtraktor"
+  url "https://github.com/servmask/Qtraktor/releases/download/v#{version}/Traktor-v#{version}.pkg"
+  name "Traktor"
+  desc "Extract WordPress .wpress backup files with CLI and MCP server"
+  homepage "https://github.com/servmask/Qtraktor"
 
-            app "Traktor.app"
-            binary "#{appdir}/Traktor.app/Contents/MacOS/Traktor", target: "traktor"
+  pkg "Traktor-v#{version}.pkg"
 
-            postflight do
-              ohai "To register Traktor with your AI coding agents, run:"
-              ohai "  traktor mcp register"
-            end
+  caveats <<~EOS
+    To register Traktor with your AI coding agents (Claude Code, Gemini CLI):
+      traktor mcp register
 
-            caveats <<~EOS
-              To register Traktor with your AI coding agents (Claude Code, Gemini CLI):
-                traktor mcp register
+    To check which agents are detected:
+      traktor mcp status
 
-              To check which agents are detected:
-                traktor mcp status
+    To uninstall completely:
+      traktor uninstall
+      brew uninstall traktor
+  EOS
 
-              To uninstall completely:
-                traktor uninstall
-                brew uninstall traktor
-            EOS
-
-            zap trash: [
-              "~/Library/Preferences/com.servmask.Traktor.plist",
+  uninstall pkgutil: "com.servmask.traktor",
+            delete:  [
+              "/Applications/Traktor.app",
+              "/usr/local/bin/traktor",
             ]
-          end
-          CASKEOF
 
-          # Remove leading whitespace from heredoc
-          sed -i 's/^          //' Casks/traktor.rb
+  zap trash: [
+    "~/Library/Preferences/com.servmask.Traktor.plist",
+  ]
+end
+CASKEOF
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
