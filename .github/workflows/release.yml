@@ -10,6 +10,10 @@ env:
 
 jobs:
   build-macos:
+    # Qt 6.8 from install-qt-action ships universal (arm64+x86_64) frameworks.
+    # We build on two runners to get native-arch OpenSSL from Homebrew, then
+    # lipo-merge only the Traktor binary and OpenSSL dylibs. Qt frameworks
+    # are already universal and copied as-is from the arm64 build.
     strategy:
       matrix:
         include:
@@ -41,12 +45,11 @@ jobs:
           cmake --build build -j"$(sysctl -n hw.ncpu)"
 
       - name: Bundle Qt frameworks
+        if: matrix.arch == 'arm64'
         run: |
           macdeployqt build/Traktor.app
 
           # Strip frameworks and plugins Traktor does not use.
-          # macdeployqt in Qt 6 bundles these via transitive plugin deps.
-          # Traktor is a pure Widgets app with zero QML, SVG, GIF, or network use.
           rm -rf build/Traktor.app/Contents/Frameworks/QtQml*.framework \
                  build/Traktor.app/Contents/Frameworks/QtQuick*.framework \
                  build/Traktor.app/Contents/Frameworks/QtSvg.framework
@@ -59,26 +62,39 @@ jobs:
           rm -rf build/Traktor.app/Contents/PlugIns/networkinformation \
                  build/Traktor.app/Contents/PlugIns/tls
 
-      - name: Archive app (preserve symlinks)
-        run: tar -cf Traktor-${{ matrix.arch }}.app.tar -C build Traktor.app
+      - name: Archive app (arm64 — full bundle with Qt frameworks)
+        if: matrix.arch == 'arm64'
+        run: tar -cf Traktor-arm64.app.tar -C build Traktor.app
+
+      - name: Archive binary only (x86_64 — just the executable and OpenSSL)
+        if: matrix.arch == 'x86_64'
+        run: |
+          # Only archive files that need lipo merge (Traktor binary + OpenSSL)
+          mkdir -p x86_64-binaries
+          cp build/Traktor.app/Contents/MacOS/Traktor x86_64-binaries/
+          # Copy OpenSSL dylibs from Homebrew (native x86_64)
+          SSL_PREFIX="$(brew --prefix openssl)"
+          cp "$SSL_PREFIX/lib/libssl"*.dylib x86_64-binaries/ 2>/dev/null || true
+          cp "$SSL_PREFIX/lib/libcrypto"*.dylib x86_64-binaries/ 2>/dev/null || true
+          tar -cf Traktor-x86_64-binaries.tar -C x86_64-binaries .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Traktor-${{ matrix.arch }}.app
-          path: Traktor-${{ matrix.arch }}.app.tar
+          path: Traktor-${{ matrix.arch }}*.tar
 
   package-macos:
     needs: build-macos
     runs-on: macos-latest
     steps:
-      - name: Download arm64 app
+      - name: Download arm64 app (full bundle)
         uses: actions/download-artifact@v4
         with:
           name: Traktor-arm64.app
           path: arm64
 
-      - name: Download x86_64 app
+      - name: Download x86_64 binaries
         uses: actions/download-artifact@v4
         with:
           name: Traktor-x86_64.app
@@ -87,22 +103,29 @@ jobs:
       - name: Extract archives
         run: |
           tar -xf arm64/Traktor-arm64.app.tar -C arm64
-          tar -xf x86_64/Traktor-x86_64.app.tar -C x86_64
+          mkdir -p x86_64-bin
+          tar -xf x86_64/Traktor-x86_64-binaries.tar -C x86_64-bin
 
       - name: Create universal binary
         run: |
+          # Start with the full arm64 app bundle (Qt frameworks are already universal)
           cp -R arm64/Traktor.app Universal-Traktor.app
 
-          # Merge all Mach-O binaries with lipo
-          find arm64/Traktor.app -type f | while IFS= read -r arm_file; do
-            rel="${arm_file#arm64/Traktor.app/}"
-            intel_file="x86_64/Traktor.app/$rel"
-            universal_file="Universal-Traktor.app/$rel"
+          # Lipo-merge the Traktor binary (arm64 + x86_64)
+          echo "Merging: Contents/MacOS/Traktor"
+          lipo -create \
+            arm64/Traktor.app/Contents/MacOS/Traktor \
+            x86_64-bin/Traktor \
+            -output Universal-Traktor.app/Contents/MacOS/Traktor
 
-            # Check if both files exist and are Mach-O
-            if [ -f "$intel_file" ] && file "$arm_file" | grep -q "Mach-O"; then
-              echo "Merging: $rel"
-              lipo -create "$arm_file" "$intel_file" -output "$universal_file"
+          # Lipo-merge OpenSSL dylibs
+          for dylib in libssl.3.dylib libcrypto.3.dylib; do
+            arm_file="arm64/Traktor.app/Contents/Frameworks/$dylib"
+            intel_file="x86_64-bin/$dylib"
+            if [ -f "$arm_file" ] && [ -f "$intel_file" ]; then
+              echo "Merging: Contents/Frameworks/$dylib"
+              lipo -create "$arm_file" "$intel_file" \
+                -output "Universal-Traktor.app/Contents/Frameworks/$dylib"
             fi
           done
 
