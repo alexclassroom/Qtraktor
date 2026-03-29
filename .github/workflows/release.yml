@@ -26,14 +26,17 @@ jobs:
 
       - name: Build
         run: |
-          export PATH="$(brew --prefix qt@5)/bin:$PATH"
-          export PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig"
+          QT_PREFIX="$(brew --prefix qt@5)"
+          SSL_PREFIX="$(brew --prefix openssl)"
+          export PATH="$QT_PREFIX/bin:$PATH"
+          export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig"
           qmake Qtraktor.pro
-          make -j$(sysctl -n hw.ncpu)
+          make -j"$(sysctl -n hw.ncpu)"
 
       - name: Bundle Qt frameworks
         run: |
-          export PATH="$(brew --prefix qt@5)/bin:$PATH"
+          QT_PREFIX="$(brew --prefix qt@5)"
+          export PATH="$QT_PREFIX/bin:$PATH"
           macdeployqt Traktor.app
 
       - name: Archive app (preserve symlinks)
@@ -71,7 +74,7 @@ jobs:
           cp -R arm64/Traktor.app Universal-Traktor.app
 
           # Merge all Mach-O binaries with lipo
-          find arm64/Traktor.app -type f | while read arm_file; do
+          find arm64/Traktor.app -type f | while IFS= read -rarm_file; do
             rel="${arm_file#arm64/Traktor.app/}"
             intel_file="x86_64/Traktor.app/$rel"
             universal_file="Universal-Traktor.app/$rel"
@@ -86,13 +89,13 @@ jobs:
       - name: Codesign universal app
         run: |
           # Sign frameworks and dylibs inside-out before signing the app
-          find Universal-Traktor.app/Contents/Frameworks -name "*.framework" -type d | while read fw; do
+          find Universal-Traktor.app/Contents/Frameworks -name "*.framework" -type d | while IFS= read -rfw; do
             codesign --force --sign - "$fw"
           done
-          find Universal-Traktor.app/Contents/Frameworks -name "*.dylib" -type f | while read lib; do
+          find Universal-Traktor.app/Contents/Frameworks -name "*.dylib" -type f | while IFS= read -rlib; do
             codesign --force --sign - "$lib"
           done
-          find Universal-Traktor.app/Contents/PlugIns -type f -name "*.dylib" 2>/dev/null | while read lib; do
+          find Universal-Traktor.app/Contents/PlugIns -type f -name "*.dylib" 2>/dev/null | while IFS= read -rlib; do
             codesign --force --sign - "$lib"
           done
           codesign --force --sign - Universal-Traktor.app
@@ -233,7 +236,7 @@ jobs:
       - name: Build
         run: |
           qmake Qtraktor.pro
-          make -j$(nproc)
+          make -j"$(nproc)"
 
       - name: Cache linuxdeploy
         uses: actions/cache@v4
@@ -302,7 +305,7 @@ jobs:
           VT_KEY: ${{ secrets.VT_API_KEY }}
         run: |
           if [ -n "$VT_KEY" ]; then
-            echo "HAS_VT_KEY=true" >> $GITHUB_ENV
+            echo "HAS_VT_KEY=true" >> "$GITHUB_ENV"
           fi
 
       - name: Upload assets to GitHub release
@@ -333,44 +336,47 @@ jobs:
           echo "PKG SHA256: $SHA256"
 
           # Clone the tap repo, update the cask, push
-          git clone https://x-access-token:${GH_TOKEN}@github.com/servmask/homebrew-traktor.git /tmp/homebrew-tap
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/servmask/homebrew-traktor.git" /tmp/homebrew-tap
           cd /tmp/homebrew-tap
 
-          cat > Casks/traktor.rb << CASKEOF
-cask "traktor" do
-  version "$CLEAN_VERSION"
-  sha256 "$SHA256"
+          python3 -c "
+          import sys
+          v = sys.argv[1]
+          s = sys.argv[2]
+          print('''cask \"traktor\" do
+            version \"%s\"
+            sha256 \"%s\"
 
-  url "https://github.com/servmask/Qtraktor/releases/download/v#{version}/Traktor-v#{version}.pkg"
-  name "Traktor"
-  desc "Extract WordPress .wpress backup files with CLI and MCP server"
-  homepage "https://github.com/servmask/Qtraktor"
+            url \"https://github.com/servmask/Qtraktor/releases/download/v#\\{version\\}/Traktor-v#\\{version\\}.pkg\"
+            name \"Traktor\"
+            desc \"Extract WordPress .wpress backup files with CLI and MCP server\"
+            homepage \"https://github.com/servmask/Qtraktor\"
 
-  pkg "Traktor-v#{version}.pkg"
+            pkg \"Traktor-v#\\{version\\}.pkg\"
 
-  caveats <<~EOS
-    To register Traktor with your AI coding agents (Claude Code, Gemini CLI):
-      traktor mcp register
+            caveats <<~EOS
+              To register Traktor with your AI coding agents (Claude Code, Gemini CLI):
+                traktor mcp register
 
-    To check which agents are detected:
-      traktor mcp status
+              To check which agents are detected:
+                traktor mcp status
 
-    To uninstall completely:
-      traktor uninstall
-      brew uninstall traktor
-  EOS
+              To uninstall completely:
+                traktor uninstall
+                brew uninstall traktor
+            EOS
 
-  uninstall pkgutil: "com.servmask.traktor",
-            delete:  [
-              "/Applications/Traktor.app",
-              "/usr/local/bin/traktor",
+            uninstall pkgutil: \"com.servmask.traktor\",
+                      delete:  [
+                        \"/Applications/Traktor.app\",
+                        \"/usr/local/bin/traktor\",
+                      ]
+
+            zap trash: [
+              \"~/Library/Preferences/com.servmask.Traktor.plist\",
             ]
-
-  zap trash: [
-    "~/Library/Preferences/com.servmask.Traktor.plist",
-  ]
-end
-CASKEOF
+          end''' % (v, s))
+          " "$CLEAN_VERSION" "$SHA256" | sed 's/^            //' > Casks/traktor.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -406,7 +412,7 @@ CASKEOF
             analysis_id=$(echo "$response" | jq -r '.data.id // empty')
             if [ -z "$analysis_id" ]; then
               echo "::warning::Failed to submit $name to VirusTotal"
-              echo "VT_${name}_LINK=" >> $GITHUB_ENV
+              echo "VT_${name}_LINK=" >> "$GITHUB_ENV"
               return
             fi
 
@@ -428,10 +434,10 @@ CASKEOF
               --header "x-apikey: $VT_API_KEY" | jq -r '.meta.file_info.sha256 // empty')
 
             if [ -n "$sha256" ]; then
-              echo "VT_${name}=https://www.virustotal.com/gui/file/$sha256" >> $GITHUB_ENV
+              echo "VT_${name}=https://www.virustotal.com/gui/file/$sha256" >> "$GITHUB_ENV"
               echo "  $name: https://www.virustotal.com/gui/file/$sha256"
             else
-              echo "VT_${name}=" >> $GITHUB_ENV
+              echo "VT_${name}=" >> "$GITHUB_ENV"
               echo "::warning::Could not get SHA-256 for $name"
             fi
 

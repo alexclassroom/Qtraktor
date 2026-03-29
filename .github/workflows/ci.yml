@@ -71,13 +71,13 @@ jobs:
       - name: Build
         run: |
           qmake Qtraktor.pro
-          make -j$(nproc)
+          make -j"$(nproc)"
 
       - name: Build tests
         run: |
           cd tests
           qmake tests.pro
-          make -j$(nproc)
+          make -j"$(nproc)"
 
       - name: Run tests
         run: |
@@ -97,9 +97,9 @@ jobs:
         run: |
           make clean
           qmake Qtraktor.pro "QMAKE_CXX=clazy" "QMAKE_CXXFLAGS+=-Xclang -plugin-arg-clazy -Xclang level0,level1"
-          make -j$(nproc) 2>&1 | tee clazy-output.txt
-          echo "## clazy warnings" >> $GITHUB_STEP_SUMMARY
-          grep -E "warning:.*\[-Wclazy" clazy-output.txt >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No clazy warnings found" >> $GITHUB_STEP_SUMMARY
+          make -j"$(nproc)" 2>&1 | tee clazy-output.txt
+          echo "## clazy warnings" >> "$GITHUB_STEP_SUMMARY"
+          grep -E "warning:.*\[-Wclazy" clazy-output.txt >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || echo "No clazy warnings found" >> "$GITHUB_STEP_SUMMARY"
 
   build-test-macos:
     name: Build & Test (macOS)
@@ -112,18 +112,22 @@ jobs:
 
       - name: Build
         run: |
-          export PATH="$(brew --prefix qt@5)/bin:$PATH"
-          export PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig"
+          QT_PREFIX="$(brew --prefix qt@5)"
+          SSL_PREFIX="$(brew --prefix openssl)"
+          export PATH="$QT_PREFIX/bin:$PATH"
+          export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig"
           qmake Qtraktor.pro
-          make -j$(sysctl -n hw.ncpu)
+          make -j"$(sysctl -n hw.ncpu)"
 
       - name: Build tests
         run: |
-          export PATH="$(brew --prefix qt@5)/bin:$PATH"
-          export PKG_CONFIG_PATH="$(brew --prefix openssl)/lib/pkgconfig"
+          QT_PREFIX="$(brew --prefix qt@5)"
+          SSL_PREFIX="$(brew --prefix openssl)"
+          export PATH="$QT_PREFIX/bin:$PATH"
+          export PKG_CONFIG_PATH="$SSL_PREFIX/lib/pkgconfig"
           cd tests
           qmake tests.pro
-          make -j$(sysctl -n hw.ncpu)
+          make -j"$(sysctl -n hw.ncpu)"
 
       - name: Run tests
         run: |
@@ -133,7 +137,8 @@ jobs:
       - name: Bundle app for testing
         if: github.event_name == 'pull_request'
         run: |
-          export PATH="$(brew --prefix qt@5)/bin:$PATH"
+          QT_PREFIX="$(brew --prefix qt@5)"
+          export PATH="$QT_PREFIX/bin:$PATH"
           macdeployqt Traktor.app
           codesign --force --deep --sign - Traktor.app
 
