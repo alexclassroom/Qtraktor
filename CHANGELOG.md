@@ -1,17 +1,26 @@
 # Changelog
 
-## [1.7.1](https://github.com/servmask/Qtraktor/compare/v1.7.0...v1.7.1) (2026-03-29)
+## [1.8.0](https://github.com/servmask/Qtraktor/compare/v1.7.0...v1.8.0) (2026-03-29)
+
+
+### Features
+
+* **Qt 6.8 LTS + CMake + C++17** — Full framework modernization ([#26](https://github.com/servmask/Qtraktor/issues/26)) ([fa019f3](https://github.com/servmask/Qtraktor/commit/fa019f3))
+  * Upgraded from Qt 5.15 (end-of-life) to Qt 6.8 LTS (supported until 2028)
+  * Migrated build system from qmake to CMake
+  * Upgraded C++ standard from C++11 to C++17
+  * macOS: minimum version raised to 11.0 (Big Sur), required by Qt 6
+  * Windows: upgraded to MSVC 2022 and Qt 6.8
+  * Leaner macOS app bundle — stripped unused Qt 6 frameworks (QML, SVG)
 
 
 ### Bug Fixes
 
-* keep QtDBus.framework in macOS bundle (QtGui runtime dependency) ([#30](https://github.com/servmask/Qtraktor/issues/30)) ([d3bb265](https://github.com/servmask/Qtraktor/commit/d3bb2658359e0f38976eab090504037640e4040a))
-* update Homebrew Cask template in release.yml to use pkg directive ([49273f0](https://github.com/servmask/Qtraktor/commit/49273f0ddbf4bee3cc5a2ee2799aedb35e551600))
-
-
-### Documentation
-
-* fix download page to match .pkg assets instead of .dmg ([a2ab180](https://github.com/servmask/Qtraktor/commit/a2ab18078d37b26ca6ba2348cdc377887963e523))
+* keep QtDBus.framework in macOS bundle, required by QtGui at runtime ([#30](https://github.com/servmask/Qtraktor/issues/30)) ([d3bb265](https://github.com/servmask/Qtraktor/commit/d3bb265))
+* restore two-runner lipo matrix for macOS universal binary ([#31](https://github.com/servmask/Qtraktor/issues/31)) ([919ef16](https://github.com/servmask/Qtraktor/commit/919ef16))
+* update Homebrew Cask template in release.yml to use pkg directive ([49273f0](https://github.com/servmask/Qtraktor/commit/49273f0))
+* fix download page to match .pkg assets instead of .dmg ([a2ab180](https://github.com/servmask/Qtraktor/commit/a2ab180))
+* use PAT for release-please to trigger release workflow ([6bbc44a](https://github.com/servmask/Qtraktor/commit/6bbc44a))
 
 ## [1.7.0](https://github.com/servmask/Qtraktor/compare/v1.6.0...v1.7.0) (2026-03-28)
 
