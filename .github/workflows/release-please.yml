@@ -14,4 +14,7 @@ jobs:
     steps:
       - uses: googleapis/release-please-action@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # Use a PAT instead of GITHUB_TOKEN so that the 'release: published'
+          # event triggers the Release workflow. GitHub's default token
+          # intentionally does not trigger downstream workflows to prevent loops.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
