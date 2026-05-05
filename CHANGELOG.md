@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.9.0](https://github.com/servmask/Qtraktor/compare/v1.8.0...v1.9.0) (2026-05-05)
+
+
+### Features
+
+* **Hybrid CLI/GUI mode** — split GUI behind a runtime probe ([#40](https://github.com/servmask/Qtraktor/issues/40))
+  * Linux: thin executable links only `Qt6::Core` + `libdl`; the Widgets GUI lives in `libtraktor-gui.so` and is `dlopen`'d at runtime when `$DISPLAY`/`$WAYLAND_DISPLAY`, `libGL.so.1`, and the plugin all probe successfully — minimal/headless containers stay in CLI mode without loader errors
+  * Windows: switched to the console subsystem so CLI subcommands pipe stdout cleanly from PowerShell/cmd; the console is detached only when Traktor owns it (never the user's inherited terminal) before the GUI event loop starts
+  * Adds `--gui` / `--cli` / `--no-gui` flags, a global `--help` / `--version` handler, and refactors subcommand dispatch out of `main.cpp` into `clihandler.cpp` so the Linux thin exe and the macOS/Windows inline-GUI path share the same machinery
+  * `cmdLegacyExtract` now honors the `TRAKTOR_PASSWORD` env var and uses `mkpath()` for parity with the new `extract` subcommand
+
+
+### Bug Fixes
+
+* remove extra escaping in Homebrew Cask URL template ([#35](https://github.com/servmask/Qtraktor/issues/35))
+
+
+### Documentation
+
+* update build instructions from Qt 5/qmake to Qt 6/CMake ([#37](https://github.com/servmask/Qtraktor/issues/37))
+
+
 ## [1.8.0](https://github.com/servmask/Qtraktor/compare/v1.7.0...v1.8.0) (2026-03-29)
 
 
