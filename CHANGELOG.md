@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.9.1](https://github.com/servmask/Qtraktor/compare/v1.9.0...v1.9.1) (2026-05-05)
+
+
+### Features
+
+* **macOS Developer ID signing and notarization** ([#42](https://github.com/servmask/Qtraktor/issues/42))
+  * Replaces ad-hoc signing with proper Developer ID Application + Installer certificates and Apple notarization (ASC API key auth)
+  * Both the `.app` bundle (Sparkle-ready) and the `.pkg` installer are notarized, so first launch no longer trips Gatekeeper warnings
+
 ## [1.9.0](https://github.com/servmask/Qtraktor/compare/v1.8.0...v1.9.0) (2026-05-05)
 
 
