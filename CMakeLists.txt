@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
+set(CMAKE_AUTORCC ON)
 
 # macOS deployment target (must be before find_package for proper SDK targeting)
 if(APPLE)
@@ -46,6 +47,7 @@ set(APP_SOURCES
     src/agentconfig.cpp
     src/setupdialog.cpp
     src/passworddialog.cpp
+    src/aboutdialog.cpp
     src/appdelegate.cpp
     src/dropoverlay.cpp
     src/extractionworker.cpp
@@ -63,6 +65,7 @@ set(APP_HEADERS
     src/agentconfig.h
     src/setupdialog.h
     src/passworddialog.h
+    src/aboutdialog.h
     src/appdelegate.h
     src/dropoverlay.h
     src/extractionworker.h
@@ -72,18 +75,25 @@ set(APP_HEADERS
 )
 
 set(APP_FORMS src/mainwindow.ui)
+set(APP_RESOURCES resources.qrc)
 
 # Platform-specific sources
 if(APPLE)
     enable_language(OBJCXX)
-    list(APPEND APP_SOURCES src/dockprogress.mm)
+    list(APPEND APP_SOURCES src/dockprogress.mm src/updatemanager.mm)
+    list(APPEND APP_HEADERS src/updatemanager.h)
+    # ARC for updatemanager.mm: cleaner ownership of SPUStandardUpdaterController
+    # and the KVO observer (raw Obj-C pointers in the C++ pimpl are __strong by
+    # default under ARC, so destruction releases them automatically).
+    set_source_files_properties(src/updatemanager.mm PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc")
 else()
     list(APPEND APP_SOURCES src/dockprogress_stub.cpp)
 endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     # ── Hybrid CLI/GUI build (Linux only) ──────────────────────────────────
-    # The executable links Qt6::Core only — no libGL, no QtGui, no
+    # The executable links Qt6::Core only - no libGL, no QtGui, no
     # QtWidgets in DT_NEEDED. The GUI lives in libtraktor-gui.so which
     # main.cpp dlopen()s at runtime when probes for $DISPLAY, libGL.so.1
     # and the plugin itself succeed. On a minimal container the binary
@@ -130,6 +140,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         src/mainwindow.cpp
         src/setupdialog.cpp
         src/passworddialog.cpp
+        src/aboutdialog.cpp
         src/autoextractor.cpp
         src/progresswindow.cpp
         src/dropoverlay.cpp
@@ -141,6 +152,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         src/mainwindow.h
         src/setupdialog.h
         src/passworddialog.h
+        src/aboutdialog.h
         src/autoextractor.h
         src/progresswindow.h
         src/dropoverlay.h
@@ -148,7 +160,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
         src/dockprogress.h
     )
     qt_add_library(traktor-gui SHARED
-        ${GUI_SOURCES} ${GUI_HEADERS} src/mainwindow.ui
+        ${GUI_SOURCES} ${GUI_HEADERS} src/mainwindow.ui ${APP_RESOURCES}
     )
     target_link_libraries(traktor-gui PRIVATE
         traktor-core
@@ -177,7 +189,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     install(TARGETS Traktor RUNTIME DESTINATION bin)
     install(TARGETS traktor-core traktor-gui LIBRARY DESTINATION lib)
 else()
-    qt_add_executable(Traktor ${APP_SOURCES} ${APP_HEADERS} ${APP_FORMS})
+    qt_add_executable(Traktor ${APP_SOURCES} ${APP_HEADERS} ${APP_FORMS} ${APP_RESOURCES})
 
     target_include_directories(Traktor PRIVATE src)
 
@@ -193,10 +205,18 @@ else()
     )
 endif()
 
-# Project version is consumed by main.cpp's --version handler on every platform.
+# Project version is consumed by main.cpp's --version handler on every platform,
+# and by AboutDialog on macOS/Windows (where aboutdialog.cpp is in the Traktor
+# target). On Linux, AboutDialog lives in libtraktor-gui.so, so the same macro
+# must be defined for that target too.
 target_compile_definitions(Traktor PRIVATE
     PROJECT_VERSION_STR="${PROJECT_VERSION}"
 )
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    target_compile_definitions(traktor-gui PRIVATE
+        PROJECT_VERSION_STR="${PROJECT_VERSION}"
+    )
+endif()
 
 # macOS bundle configuration
 if(APPLE)
@@ -209,6 +229,10 @@ if(APPLE)
     set_target_properties(Traktor PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_BINARY_DIR}/Info.plist
+        # @executable_path/../Frameworks is where Sparkle.framework (and Qt
+        # frameworks once macdeployqt runs) live inside the .app bundle.
+        INSTALL_RPATH "@executable_path/../Frameworks"
+        BUILD_WITH_INSTALL_RPATH TRUE
     )
 
     target_link_libraries(Traktor PRIVATE
@@ -222,6 +246,43 @@ if(APPLE)
     target_sources(Traktor PRIVATE ${ICON_FILES})
     set_source_files_properties(${ICON_FILES} PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources
+    )
+
+    # ── Sparkle auto-update framework ──────────────────────────────────────
+    # Vendored via FetchContent - downloaded at configure time, not committed.
+    # macdeployqt does NOT bundle non-Qt frameworks (per Qt's deployment
+    # docs), so we copy Sparkle.framework into the .app via the POST_BUILD
+    # step below. The existing inside-out codesign loop in release.yml
+    # picks it up automatically once it's in Contents/Frameworks/.
+    include(FetchContent)
+    FetchContent_Declare(Sparkle
+        URL https://github.com/sparkle-project/Sparkle/releases/download/2.9.1/Sparkle-2.9.1.tar.xz
+        URL_HASH SHA256=c0dde519fd2a43ddfc6a1eb76aec284d7d888fe281414f9177de3164d98ba4c7
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(Sparkle)
+
+    # -F adds Sparkle's parent dir to the framework search path. Needed at
+    # both compile time (so #import <Sparkle/Sparkle.h> resolves) and link
+    # time (so -framework Sparkle finds it).
+    target_compile_options(Traktor PRIVATE "-F${sparkle_SOURCE_DIR}")
+    target_link_libraries(Traktor PRIVATE
+        "-F${sparkle_SOURCE_DIR}"
+        "-framework Sparkle"
+    )
+
+    # Copy Sparkle.framework into the .app bundle's Contents/Frameworks/
+    # after the binary links. We use `ditto` (not `cmake -E copy_directory`)
+    # because Sparkle.framework relies on symlinks at its top level
+    # (Sparkle -> Versions/Current/Sparkle, Headers -> Versions/Current/Headers,
+    # etc.). `cmake -E copy_directory` dereferences those symlinks, producing
+    # two copies of every binary and breaking codesign with
+    # "bundle format is ambiguous (could be app or framework)".
+    add_custom_command(TARGET Traktor POST_BUILD
+        COMMAND ditto
+                "${sparkle_SOURCE_DIR}/Sparkle.framework"
+                "$<TARGET_BUNDLE_DIR:Traktor>/Contents/Frameworks/Sparkle.framework"
+        VERBATIM
     )
 endif()
 

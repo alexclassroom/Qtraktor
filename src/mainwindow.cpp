@@ -1,7 +1,9 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include <QApplication>
 #include <QFileDialog>
 #include <QIODevice>
+#include <QIcon>
 #include <QMenuBar>
 #include <QAction>
 #include <QMessageBox>
@@ -13,10 +15,20 @@
 #include "installcli.h"
 #include "passworddialog.h"
 #include "setupdialog.h"
+#include "aboutdialog.h"
 #include "cryptoutils.h"
+
+#ifdef Q_OS_MAC
+#include "updatemanager.h"
+#endif
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWindow)
 {
+    // Set the app icon globally so QApplication::windowIcon() returns it
+    // for AboutDialog and any other window that asks. Bundled via the
+    // resources.qrc Qt resource so it works the same on all platforms.
+    qApp->setWindowIcon(QIcon(QStringLiteral(":/icons/traktor.png")));
+
     ui->setupUi(this);
     ui->progressBar->setVisible(false);
     ui->logTextEdit->setVisible(false);
@@ -33,6 +45,37 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
     toolsMenu->addSeparator();
     QAction *uninstallAction = toolsMenu->addAction(tr("Uninstall Traktor..."));
     connect(uninstallAction, &QAction::triggered, this, &MainWindow::uninstallTraktor);
+
+    // "About Traktor" - universal across platforms.
+    // setMenuRole(AboutRole) routes this into the macOS app menu's About
+    // slot; on Windows/Linux it stays in the Tools menu where added.
+    QAction *aboutAction = new QAction(tr("About Traktor"), this);
+    aboutAction->setMenuRole(QAction::AboutRole);
+    toolsMenu->addAction(aboutAction);
+    connect(aboutAction, &QAction::triggered, this, [this] {
+        AboutDialog dlg(this);
+        dlg.exec();
+    });
+
+#ifdef Q_OS_MAC
+    // Sparkle auto-update bridge - macOS only for now (WinSparkle is a
+    // separate workstream). Construction starts Sparkle's scheduled check
+    // loop, reading SUFeedURL and SUPublicEDKey from Info.plist.
+    m_updateManager = new UpdateManager(this);
+
+    // "Check for Updates..." - setMenuRole(ApplicationSpecificRole) tells
+    // Qt to relocate this into the macOS app menu (Traktor → ...) right
+    // below the About item. We add it to the Tools menu but Qt moves it
+    // out at runtime on macOS.
+    //
+    // SPUStandardUpdaterController::checkForUpdates: is idempotent - if a
+    // check is already in flight it just re-fronts Sparkle's progress
+    // window - so we don't need to disable the action while busy.
+    QAction *checkForUpdatesAction = new QAction(tr("Check for Updates..."), this);
+    checkForUpdatesAction->setMenuRole(QAction::ApplicationSpecificRole);
+    toolsMenu->addAction(checkForUpdatesAction);
+    connect(checkForUpdatesAction, &QAction::triggered, m_updateManager, &UpdateManager::checkForUpdates);
+#endif
 
     // First-run setup dialog
     QSettings firstRunSettings("com.servmask", "Traktor");
