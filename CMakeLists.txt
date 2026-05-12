@@ -72,6 +72,7 @@ set(APP_HEADERS
     src/autoextractor.h
     src/progresswindow.h
     src/dockprogress.h
+    src/updatemanager.h
 )
 
 set(APP_FORMS src/mainwindow.ui)
@@ -81,12 +82,13 @@ set(APP_RESOURCES resources.qrc)
 if(APPLE)
     enable_language(OBJCXX)
     list(APPEND APP_SOURCES src/dockprogress.mm src/updatemanager.mm)
-    list(APPEND APP_HEADERS src/updatemanager.h)
     # ARC for updatemanager.mm: cleaner ownership of SPUStandardUpdaterController
     # and the KVO observer (raw Obj-C pointers in the C++ pimpl are __strong by
     # default under ARC, so destruction releases them automatically).
     set_source_files_properties(src/updatemanager.mm PROPERTIES
         COMPILE_FLAGS "-fobjc-arc")
+elseif(WIN32)
+    list(APPEND APP_SOURCES src/dockprogress_stub.cpp src/updatemanager_win.cpp)
 else()
     list(APPEND APP_SOURCES src/dockprogress_stub.cpp)
 endif()
@@ -293,6 +295,44 @@ if(WIN32)
     # before the GUI event loop starts so GUI launches still look clean.
     set_target_properties(Traktor PROPERTIES WIN32_EXECUTABLE FALSE)
     target_sources(Traktor PRIVATE icons/traktor.rc)
+
+    # WinSparkle auto-update. Vendored via FetchContent (not committed).
+    # The Ed25519 signing key is byte-for-byte compatible with macOS
+    # Sparkle, verified in tools/winsparkle-tool.cpp::load_private_key
+    # which explicitly accepts the 32-byte seed format Sparkle 2 produces.
+    include(FetchContent)
+    FetchContent_Declare(WinSparkle
+        URL https://github.com/vslavik/winsparkle/releases/download/v0.9.2/WinSparkle-0.9.2.zip
+        URL_HASH SHA256=2a5facf5a22056edf7afc4d0a4bf05620b7aa7cc1619c3078b281e374cdb9996
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(WinSparkle)
+
+    # The release zip ships prebuilt x64, ARM64, and Win32 binaries under
+    # parallel subdirs (x64/Release/, ARM64/Release/, Release/). Pick the
+    # matching subdir from the build's pointer size and generator platform.
+    # Error out loudly for unsupported combinations rather than silently
+    # linking the wrong arch.
+    if(CMAKE_GENERATOR_PLATFORM STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|aarch64")
+        set(WINSPARKLE_ARCH "ARM64/Release")
+    elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(WINSPARKLE_ARCH "x64/Release")
+    elseif(CMAKE_SIZEOF_VOID_P EQUAL 4)
+        set(WINSPARKLE_ARCH "Release")
+    else()
+        message(FATAL_ERROR "WinSparkle: unsupported Windows architecture (CMAKE_SIZEOF_VOID_P=${CMAKE_SIZEOF_VOID_P}, CMAKE_GENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM})")
+    endif()
+    set(WINSPARKLE_DIR "${winsparkle_SOURCE_DIR}/${WINSPARKLE_ARCH}")
+    target_include_directories(Traktor PRIVATE "${winsparkle_SOURCE_DIR}/include")
+    target_link_directories(Traktor PRIVATE "${WINSPARKLE_DIR}")
+    # WinSparkle.lib is auto-linked by #pragma comment(lib, ...) in winsparkle.h.
+
+    add_custom_command(TARGET Traktor POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${WINSPARKLE_DIR}/WinSparkle.dll"
+                "$<TARGET_FILE_DIR:Traktor>/WinSparkle.dll"
+        VERBATIM
+    )
 endif()
 
 # Tests
